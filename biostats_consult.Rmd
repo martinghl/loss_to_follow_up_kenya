@@ -1,0 +1,400 @@
+---
+title: "biostats_consulting"
+output:
+  pdf_document:
+    toc: yes
+    latex_engine: "xelatex"
+  word_document:
+    toc: yes
+  html_document:
+    highlight: espresso
+    toc: yes
+date: "2024-10-05"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(dplyr)
+library(readr)
+library(summarytools)
+library(ggplot2)
+library(gridExtra)
+```
+
+```{r, warning=FALSE}
+# Load the dataset
+data_2022 <- read_csv("S:\\biostats_consulting_lab\\cleaned_2022_survey_dta.csv")
+data_2024 <- read_csv("S:\\biostats_consulting_lab\\cleaned_2024_survey_dta.csv")
+```
+
+```{r}
+# Rename the specified variables and clean data_2022
+data_2022_cleaned <- data_2022 %>%
+  rename(
+    dob = sec1_q1,
+    gender = sec1_q4,
+    highest_education = sec1_q5,
+    employment_status = sec1_q6,
+    marital_status = sec1_q7,
+    household_income = sec1_q8,
+    residence_area = sec1_q9,
+    survey_location = sec1_q10,
+    survey_duration = sec11_start,
+    religious = sec11_q156,
+    religion = sec11_q157,
+    specified_other_religion = sec11_q157other,
+    science_contradict = sec11_q158,
+    science_or_religion = sec11_q159
+  ) %>%
+  select(-consent, -availability) %>%
+  mutate(
+    religion = case_when(
+      religion %in% c("CCAP", "Traditional African religion") ~ "Other",
+      religion == "Prefer not to answer" ~ "Prefer not to answer [do not read aloud]",
+      TRUE ~ religion
+    ),
+    employment_status = if_else(is.na(employment_status), "Prefer not to answer", employment_status)
+  )
+```
+
+```{r}
+# Rename the specified variables and clean data_2024
+data_2024_cleaned <- data_2024 %>%
+  rename(
+    caseid = caseid,
+    response_status = response_1,
+    response_by = response_2,
+    dob = birthdate,
+    highest_education = educ_level,
+    employment_status = employ_status,
+    people_speak_to_daily = number_people,
+    household_income = hh_income,
+    specified_other_religion = religion_oth,
+    call_status = call_status
+  ) %>%
+  select(
+    dob, caseid, response_status, response_by, gender, highest_education, marital_status, parent_guardian, 
+    employment_status, work_industry, people_speak_to_daily, 
+    household_income, residence_area, religion, 
+    specified_other_religion, call_status, survey_date
+  ) %>%
+  mutate(
+    religion = case_when(
+      religion %in% c("Seventh Day Adventists", "Apostolic/New Apostlic Church", "Church of Christ",
+                      "Gospel/NewTestament/Injili Church", "Salvation Army Church", "Assembly of God Church",
+                      "Roho Church", "Church of God", "Jehovah's Witness", "Legio Maria Church", "NENO",
+                      "Repentance and Holiness", "Pentecostal/ Protestant Church") ~ "Other Christian",
+      religion == "Prefer not to answer" ~ "Prefer not to answer [do not read aloud]",
+      religion == "Akorino" ~ "Other",
+      TRUE ~ religion
+    ),
+    highest_education = if_else(highest_education == "Prefer not to answer", NA_character_, highest_education),
+    employment_status = case_when(
+      employment_status %in% c("Self-employed (includes agribusiness)", "Peasant farmer") ~ "Self-employed",
+      employment_status == "Prefer not to answer [do not read aloud]" ~ NA_character_,
+      TRUE ~ employment_status
+    )
+  )
+```
+
+```{r}
+# Display the first few rows of the cleaned datasets
+head(data_2022_cleaned)
+head(data_2024_cleaned)
+
+# Check for missing values in both datasets
+missing_values_2022 <- sapply(data_2022_cleaned, function(x) sum(is.na(x)))
+missing_values_2024 <- sapply(data_2024_cleaned, function(x) sum(is.na(x)))
+print(missing_values_2022)
+print(missing_values_2024)
+
+# Get summary statistics for both datasets
+summary(data_2022_cleaned)
+summary(data_2024_cleaned)
+```
+
+```{r}
+# Check case IDs in both datasets
+caseid_2022 <- data_2022_cleaned$caseid
+caseid_2024 <- data_2024_cleaned$caseid
+
+# Filter the 2024 dataset to only include those who successfully followed up
+successful_followup_2024 <- data_2024_cleaned %>%
+  filter(response_status == "Answered the phone, correct respondent" & call_status == "Completed")
+
+# Extract the case IDs of the successfully followed-up participants
+caseid_successful_followup <- successful_followup_2024$caseid
+
+# Identify participants present in both 2022 and successfully followed up in 2024
+common_successful_followup <- intersect(caseid_2022, caseid_successful_followup)
+
+# Identify participants in 2022 but not in the successfully followed-up group in 2024 (dropped out)
+dropped_participants <- setdiff(caseid_2022, caseid_successful_followup)
+
+# Identify participants in 2024 (successfully followed up) but not in 2022 (new participants)
+new_participants <- setdiff(caseid_successful_followup, caseid_2022)
+
+# Output the counts
+cat("Number of participants successfully followed up in 2024: ", length(common_successful_followup), "\n")
+cat("Number of participants who dropped out after 2022: ", length(dropped_participants), "\n")
+cat("Number of new participants who joined in 2024: ", length(new_participants), "\n")
+```
+
+```{r}
+# View unique values for key variables across both datasets
+list(
+  religion_2022 = unique(data_2022_cleaned$religion),
+  religion_2024 = unique(data_2024_cleaned$religion),
+  highest_education_2022 = unique(data_2022_cleaned$highest_education),
+  highest_education_2024 = unique(data_2024_cleaned$highest_education),
+  employment_status_2022 = unique(data_2022_cleaned$employment_status),
+  employment_status_2024 = unique(data_2024_cleaned$employment_status),
+  marital_status_2022 = unique(data_2022_cleaned$marital_status),
+  marital_status_2024 = unique(data_2024_cleaned$marital_status)
+)
+```
+
+```{r}
+# Merge the datasets by caseid and create new variables indicating changes between 2022 and 2024
+merged_data <- full_join(data_2022_cleaned, data_2024_cleaned, by = "caseid", suffix = c("_2022", "_2024")) %>%
+  mutate(lost = if_else(is.na(response_status) | response_status != "Answered the phone, correct respondent", 1, 0)) %>%
+  mutate(
+    religion_2022 = if_else(is.na(religion_2022), "Prefer not to answer [do not read aloud]", religion_2022),
+    religion_2024 = if_else(is.na(religion_2024), "Prefer not to answer [do not read aloud]", religion_2024),
+    education_change = if_else(is.na(highest_education_2022) | is.na(highest_education_2024), 3,
+                               if_else(highest_education_2022 != highest_education_2024, 1, 0)),
+    employment_change = if_else(is.na(employment_status_2022) | is.na(employment_status_2024), 3,
+                                if_else(employment_status_2022 != employment_status_2024, 1, 0)),
+    income_change = if_else(is.na(household_income_2022) | is.na(household_income_2024), 3,
+                            if_else(household_income_2022 != household_income_2024, 1, 0)),
+    residence_change = if_else(is.na(residence_area_2022) | is.na(residence_area_2024), 3,
+                               if_else(residence_area_2022 != residence_area_2024, 1, 0)),
+    religion_change = if_else(is.na(religion_2022) | is.na(religion_2024), 3,
+                              if_else(religion_2022 != religion_2024, 1, 0))
+  ) %>%
+  select(
+    caseid, 
+    dob_2022, gender_2022, 
+    highest_education_2022, highest_education_2024, 
+    marital_status_2022, marital_status_2024, 
+    employment_status_2022, employment_status_2024, 
+    household_income_2022, household_income_2024, 
+    residence_area_2022, residence_area_2024,
+    religion_2022, religion_2024, 
+    specified_other_religion_2022,
+    response_status, response_by, 
+    parent_guardian,
+    lost, 
+    education_change, employment_change, income_change, residence_change, religion_change
+  )
+
+# View the first few rows to verify the new order
+head(merged_data)
+
+```
+
+```{r}
+# Summarize the percentages of each change status (0, 1, 3) for each variable
+change_percentages <- merged_data %>%
+  summarize(
+    education_change_0 = mean(education_change == 0, na.rm = TRUE) * 100,  # No change
+    education_change_1 = mean(education_change == 1, na.rm = TRUE) * 100,  # Changed
+    education_change_3 = mean(education_change == 3, na.rm = TRUE) * 100,  # Unknown
+
+    employment_change_0 = mean(employment_change == 0, na.rm = TRUE) * 100,
+    employment_change_1 = mean(employment_change == 1, na.rm = TRUE) * 100,
+    employment_change_3 = mean(employment_change == 3, na.rm = TRUE) * 100,
+
+    income_change_0 = mean(income_change == 0, na.rm = TRUE) * 100,
+    income_change_1 = mean(income_change == 1, na.rm = TRUE) * 100,
+    income_change_3 = mean(income_change == 3, na.rm = TRUE) * 100,
+
+    residence_change_0 = mean(residence_change == 0, na.rm = TRUE) * 100,
+    residence_change_1 = mean(residence_change == 1, na.rm = TRUE) * 100,
+    residence_change_3 = mean(residence_change == 3, na.rm = TRUE) * 100,
+    
+    religion_change_0 = mean(religion_change == 0, na.rm = TRUE) * 100,
+    religion_change_1 = mean(religion_change == 1, na.rm = TRUE) * 100,
+    religion_change_3 = mean(religion_change == 3, na.rm = TRUE) * 100
+  )
+# View the percentage of changes
+print(change_percentages)
+```
+```{r}
+dfSummary(merged_data) %>% view()
+```
+
+```{r, warning=FALSE}
+# Prepare data for pie charts
+education_data <- merged_data %>%
+  count(education_change) %>%
+  mutate(percentage = n / sum(n) * 100)
+
+employment_data <- merged_data %>%
+  count(employment_change) %>%
+  mutate(percentage = n / sum(n) * 100)
+
+income_data <- merged_data %>%
+  count(income_change) %>%
+  mutate(percentage = n / sum(n) * 100)
+
+# education changes
+education_pie <- ggplot(education_data, aes(x = "", y = percentage, fill = factor(education_change))) +
+  geom_bar(stat = "identity", width = 1) +
+  coord_polar("y", start = 0) +
+  labs(title = "Education Change Status", fill = "Status", y = "", x = "") +
+  theme_minimal() +
+  theme(axis.text.x = element_blank()) +
+  scale_fill_manual(values = c("green", "orange", "red"), 
+                    labels = c("No Change", "Changed", "Unknown"))
+
+# employment changes
+employment_pie <- ggplot(employment_data, aes(x = "", y = percentage, fill = factor(employment_change))) +
+  geom_bar(stat = "identity", width = 1) +
+  coord_polar("y", start = 0) +
+  labs(title = "Employment Change Status", fill = "Status", y = "", x = "") +
+  theme_minimal() +
+  theme(axis.text.x = element_blank()) +
+  scale_fill_manual(values = c("green", "orange", "red"), 
+                    labels = c("No Change", "Changed", "Unknown"))
+
+# income changes
+income_pie <- ggplot(income_data, aes(x = "", y = percentage, fill = factor(income_change))) +
+  geom_bar(stat = "identity", width = 1) +
+  coord_polar("y", start = 0) +
+  labs(title = "Income Change Status", fill = "Status", y = "", x = "") +
+  theme_minimal() +
+  theme(axis.text.x = element_blank()) +
+  scale_fill_manual(values = c("green", "orange", "red"), 
+                    labels = c("No Change", "Changed", "Unknown"))
+
+# Arrange the pie charts in a single plot
+grid.arrange(education_pie, employment_pie, income_pie, ncol = 3)
+```
+
+```{r}
+# Split data into lost and followed groups
+lost_data <- merged_data %>% filter(lost == 1) 
+followed_data <- merged_data %>% filter(lost == 0)
+
+# Function to prepare data for pie chart
+prepare_pie_data <- function(data, variable) {
+  data %>%
+    count({{ variable }}) %>%
+    mutate(percentage = n / sum(n) * 100)
+}
+
+# Function to create pie chart
+create_pie_chart <- function(pie_data, title, variable_name) {
+  ggplot(pie_data, aes(x = "", y = percentage, fill = factor({{ variable_name }}))) +
+    geom_bar(stat = "identity", width = 1) +
+    coord_polar("y", start = 0) +
+    labs(title = title, fill = "Status", y = "", x = "") +
+    theme_minimal() +
+    theme(axis.text.x = element_blank()) +
+    scale_fill_manual(values = c("green", "orange", "red"), 
+                      labels = c("No Change", "Changed", "Unknown"))
+}
+
+# Prepare data for pie charts for both groups
+# For Lost Group
+education_lost <- prepare_pie_data(lost_data, education_change)
+employment_lost <- prepare_pie_data(lost_data, employment_change)
+income_lost <- prepare_pie_data(lost_data, income_change)
+
+# For Followed Group
+education_followed <- prepare_pie_data(followed_data, education_change)
+employment_followed <- prepare_pie_data(followed_data, employment_change)
+income_followed <- prepare_pie_data(followed_data, income_change)
+
+# Create pie charts for lost group
+education_pie_lost <- create_pie_chart(education_lost, "Education Change", education_change)
+employment_pie_lost <- create_pie_chart(employment_lost, "Employment Change", employment_change)
+income_pie_lost <- create_pie_chart(income_lost, "Income Change", income_change)
+
+# Create pie charts for followed group
+education_pie_followed <- create_pie_chart(education_followed, "Education Change", education_change)
+employment_pie_followed <- create_pie_chart(employment_followed, "Employment Change", employment_change)
+income_pie_followed <- create_pie_chart(income_followed, "Income Change", income_change)
+
+# Arrange the pie charts in two sets (Lost and Followed)
+grid.arrange(education_pie_lost, employment_pie_lost, income_pie_lost, ncol = 3, top = "Lost Group")
+grid.arrange(education_pie_followed, employment_pie_followed, income_pie_followed, ncol = 3, top = "Followed Group")
+```
+```{r}
+#lost_data_filtered <- lost_data %>%
+#  select(all_of(numeric_vars)) %>%
+#  mutate(across(everything(), as.character))
+
+#followed_data_filtered <- followed_data %>%
+#  select(all_of(numeric_vars)) %>%
+#  mutate(across(everything(), as.character))
+
+#unique_values_count_2022 <- sapply(lost_data_filtered, function(x) length(unique(x)))
+#unique_values_count_2022
+
+#unique_values_count_2024 <- sapply(followed_data_filtered, function(x) length(unique(x)))
+#unique_values_count_2024
+
+```
+```{r}
+#missing_values_lost <- sapply(lost_data %>% select(all_of(numeric_vars)), function(x) sum(is.na(x)))
+#missing_values_followed <- sapply(followed_data %>% select(all_of(numeric_vars)), function(x) sum(is.na(x)))
+
+#cat("Missing values in Lost group:\n")
+#print(missing_values_lost)
+#cat("\nMissing values in Followed group:\n")
+#print(missing_values_followed)
+
+```
+
+```{r}
+# 将分类变量转换为哑变量
+numeric_vars <- c("household_income_2022", "highest_education_2022", "employment_status_2022", "residence_area_2022", 
+                  "gender_2022", "marital_status_2022", "religion_2022")
+
+# 对Lost Group的分类变量进行哑变量转换
+lost_data_clean <- merged_data %>%
+  filter(lost == 1) %>%
+  select(all_of(numeric_vars)) %>%
+  mutate(across(everything(), as.factor)) %>%
+  model.matrix(~ . - 1, data = .) %>%
+  as.data.frame()
+
+# 对Followed Group的分类变量进行哑变量转换
+followed_data_clean <- merged_data %>%
+  filter(lost == 0) %>%
+  select(all_of(numeric_vars)) %>%
+  mutate(across(everything(), as.factor)) %>%
+  model.matrix(~ . - 1, data = .) %>%
+  as.data.frame()
+
+# 添加分组标签并合并数据
+lost_data_clean$group <- "Lost"
+followed_data_clean$group <- "Followed"
+combined_data_clean <- rbind(lost_data_clean, followed_data_clean)
+
+# 去除 group 列用于 PCA
+combined_data_for_pca <- combined_data_clean %>%
+  select(-group)  # 不将分组信息用于PCA
+
+# 对合并的数据进行PCA分析
+combined_pca <- prcomp(scale(combined_data_for_pca), center = TRUE, scale. = TRUE)
+
+# 提取前两个主成分并加入分组信息
+pca_df <- as.data.frame(combined_pca$x[, 1:2])
+pca_df$group <- combined_data_clean$group
+
+# 使用ggplot2绘制PCA结果
+library(ggplot2)
+
+ggplot(pca_df, aes(x = PC1, y = PC2, color = group)) +
+  geom_point() +
+  labs(title = "PCA: Lost vs Followed Groups", x = "Principal Component 1", y = "Principal Component 2") +
+  theme_minimal()
+
+```
+
