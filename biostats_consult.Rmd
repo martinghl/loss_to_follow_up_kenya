@@ -106,6 +106,8 @@ head(data_2022_cleaned)
 head(data_2024_cleaned)
 
 # Check for missing values in both datasets
+data_2022_cleaned[data_2022==""] <- "."
+data_2024_cleaned[data_2024==""] <- "."
 missing_values_2022 <- sapply(data_2022_cleaned, function(x) sum(is.na(x)))
 missing_values_2024 <- sapply(data_2024_cleaned, function(x) sum(is.na(x)))
 print(missing_values_2022)
