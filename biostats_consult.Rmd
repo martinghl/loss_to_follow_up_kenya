@@ -17,11 +17,16 @@ knitr::opts_chunk$set(echo = TRUE)
 ```
 
 ```{r}
+library(tidyr)
 library(dplyr)
 library(readr)
 library(summarytools)
 library(ggplot2)
 library(gridExtra)
+library(stringr)
+library(Rtsne)
+library(reshape2)
+library(car)
 ```
 
 ```{r, warning=FALSE}
@@ -53,16 +58,23 @@ data_2022_cleaned <- data_2022 %>%
   mutate(
     religion = case_when(
       religion %in% c("CCAP", "Traditional African religion") ~ "Other",
+      religion %in% c("Seventh Day Adventist") ~ "Other Christian",
       religion == "Prefer not to answer" ~ "Prefer not to answer [do not read aloud]",
       TRUE ~ religion
     ),
-    employment_status = if_else(is.na(employment_status), "Prefer not to answer", employment_status)
+    employment_status = if_else(is.na(employment_status), "Missing", employment_status)
   )
+```
+```{r}
+data_2022_cleaned <- data_2022_cleaned %>%
+  mutate(across(c(religion,science_or_religion, science_contradict, religious), 
+                ~ replace_na(., "Missing")))
 ```
 
 ```{r}
-# Rename the specified variables and clean data_2024
+# Clean and rename specified variables in data_2024
 data_2024_cleaned <- data_2024 %>%
+  # Rename variables
   rename(
     caseid = caseid,
     response_status = response_1,
@@ -75,30 +87,80 @@ data_2024_cleaned <- data_2024 %>%
     specified_other_religion = religion_oth,
     call_status = call_status
   ) %>%
+  
+  # Select only the relevant variables
   select(
     dob, caseid, response_status, response_by, gender, highest_education, marital_status, parent_guardian, 
     employment_status, work_industry, people_speak_to_daily, 
     household_income, residence_area, religion, 
     specified_other_religion, call_status, survey_date
   ) %>%
+  
+  # Clean data by re-coding and handling missing values
   mutate(
+    # Re-code religion variable by grouping similar categories
     religion = case_when(
       religion %in% c("Seventh Day Adventists", "Apostolic/New Apostlic Church", "Church of Christ",
                       "Gospel/NewTestament/Injili Church", "Salvation Army Church", "Assembly of God Church",
                       "Roho Church", "Church of God", "Jehovah's Witness", "Legio Maria Church", "NENO",
                       "Repentance and Holiness", "Pentecostal/ Protestant Church") ~ "Other Christian",
-      religion == "Prefer not to answer" ~ "Prefer not to answer [do not read aloud]",
+      religion == "Prefer not to answer [do not read aloud]" ~ "Prefer not to answer",
       religion == "Akorino" ~ "Other",
+      religion == "Baptist Church" ~ "Baptist",
       TRUE ~ religion
     ),
-    highest_education = if_else(highest_education == "Prefer not to answer", NA_character_, highest_education),
+    
+    # Re-code employment_status variable
     employment_status = case_when(
       employment_status %in% c("Self-employed (includes agribusiness)", "Peasant farmer") ~ "Self-employed",
-      employment_status == "Prefer not to answer [do not read aloud]" ~ NA_character_,
       TRUE ~ employment_status
+    ),
+    highest_education = case_when(
+      highest_education == "Prefer not to answer" ~ "Prefer not to answer [do not read aloud]",
+      TRUE ~ highest_education
     )
-  )
+  ) %>%
+  
+  # Replace NA values in highest_education with "Missing"
+  mutate(highest_education = replace_na(highest_education, "Missing")) %>%
+  mutate(marital_status = replace_na(marital_status, "Missing"))%>%
+  mutate(parent_guardian = replace_na(parent_guardian, "Missing"))%>%
+  mutate(work_industry = replace_na(work_industry, "Missing"))%>%
+  mutate(people_speak_to_daily = replace_na(people_speak_to_daily, "Missing"))%>%
+  mutate(household_income = replace_na(household_income, "Missing"))%>%
+  mutate(residence_area = replace_na(residence_area, "Missing"))%>%
+  mutate(employment_status = replace_na(employment_status, "Missing"))%>%
+  mutate(religion = replace_na(religion, "Missing"))
+
+  
+  
+
+data_2024_cleaned <- data_2024_cleaned %>%
+  left_join(data_2022_cleaned %>% select(caseid, gender, religion, dob), by = "caseid", suffix = c("_2024", "_2022")) %>%
+  mutate(
+    # 如果2024的gender是NA，用2022的gender进行填充
+    gender_2024 = coalesce(gender_2024, gender_2022),
+    # 如果gender仍为NA，则替换为"Unknown"
+    gender_2024 = replace_na(gender_2024, "Unknown"),
+    
+    dob_2024 = coalesce(dob_2024,dob_2022),
+    # 如果religion仍为NA，则替换为"Unknown"
+    dob_2024 = replace_na(dob_2024, "Unknown")
+  ) %>%
+  
+  # 移除gender_2022和religion_2022，保留处理过的gender_2024和religion_2024
+  select(-gender_2022, -dob_2022) %>%
+  rename(gender = gender_2024, dob = dob_2024)
 ```
+
+```{r}
+# Replace "Prefer not to answer [do not read aloud]" with "Prefer not to answer" across all columns
+data_2024_cleaned <- data_2024_cleaned %>%
+  mutate(across(everything(), ~str_replace(., "Prefer not to answer \\[do not read aloud\\]", "Prefer not to answer")))
+data_2022_cleaned <- data_2022_cleaned %>%
+  mutate(across(everything(), ~str_replace(., "Prefer not to answer \\[do not read aloud\\]", "Prefer not to answer")))
+```
+
 
 ```{r}
 # Display the first few rows of the cleaned datasets
@@ -106,8 +168,6 @@ head(data_2022_cleaned)
 head(data_2024_cleaned)
 
 # Check for missing values in both datasets
-data_2022_cleaned[data_2022==""] <- "."
-data_2024_cleaned[data_2024==""] <- "."
 missing_values_2022 <- sapply(data_2022_cleaned, function(x) sum(is.na(x)))
 missing_values_2024 <- sapply(data_2024_cleaned, function(x) sum(is.na(x)))
 print(missing_values_2022)
@@ -149,7 +209,7 @@ cat("Number of new participants who joined in 2024: ", length(new_participants),
 # View unique values for key variables across both datasets
 list(
   religion_2022 = unique(data_2022_cleaned$religion),
-  religion_2024 = unique(data_2024_cleaned$religion),
+  religion_2024 = unique(data_2024_cleaned$religion_2024),
   highest_education_2022 = unique(data_2022_cleaned$highest_education),
   highest_education_2024 = unique(data_2024_cleaned$highest_education),
   employment_status_2022 = unique(data_2022_cleaned$employment_status),
@@ -158,24 +218,91 @@ list(
   marital_status_2024 = unique(data_2024_cleaned$marital_status)
 )
 ```
+```{r}
+data_2022_cleaned <- data_2022_cleaned %>%
+  semi_join(data_2024_cleaned, by = "caseid")  # 仅保留2024中存在的caseid
+
+data_2024_cleaned <- data_2024_cleaned %>%
+  semi_join(data_2022_cleaned, by = "caseid")  # 仅保留2022中存在的caseid
+```
+```{r}
+# Function to calculate percentage of missing values
+calculate_missing_percentage <- function(data) {
+  data %>%
+    summarise(across(everything(), ~ sum(. == "Missing") / n() * 100)) %>%
+    pivot_longer(cols = everything(), names_to = "variable", values_to = "missing_percentage")
+}
+
+# Calculate missing percentages for both datasets
+missing_2022 <- calculate_missing_percentage(data_2022_cleaned)
+missing_2024 <- calculate_missing_percentage(data_2024_cleaned)
+
+# Plot missing values for data_2022_cleaned
+plot_2022 <- ggplot(missing_2022, aes(x = reorder(variable, -missing_percentage), y = missing_percentage)) +
+  geom_bar(stat = "identity", fill = "red") +
+  coord_flip() +
+  labs(title = "Percentage of Missing Values in data_2022_cleaned", x = "Variables", y = "Missing Percentage (%)") +
+  theme_minimal()
+
+# Plot missing values for data_2024_cleaned
+plot_2024 <- ggplot(missing_2024, aes(x = reorder(variable, -missing_percentage), y = missing_percentage)) +
+  geom_bar(stat = "identity", fill = "red") +
+  coord_flip() +
+  labs(title = "Percentage of Missing Values in data_2024_cleaned", x = "Variables", y = "Missing Percentage (%)") +
+  theme_minimal()
+
+# Display the plots
+plot_2022
+plot_2024
+
+```
 
 ```{r}
 # Merge the datasets by caseid and create new variables indicating changes between 2022 and 2024
 merged_data <- full_join(data_2022_cleaned, data_2024_cleaned, by = "caseid", suffix = c("_2022", "_2024")) %>%
   mutate(lost = if_else(is.na(response_status) | response_status != "Answered the phone, correct respondent", 1, 0)) %>%
   mutate(
-    religion_2022 = if_else(is.na(religion_2022), "Prefer not to answer [do not read aloud]", religion_2022),
-    religion_2024 = if_else(is.na(religion_2024), "Prefer not to answer [do not read aloud]", religion_2024),
-    education_change = if_else(is.na(highest_education_2022) | is.na(highest_education_2024), 3,
-                               if_else(highest_education_2022 != highest_education_2024, 1, 0)),
-    employment_change = if_else(is.na(employment_status_2022) | is.na(employment_status_2024), 3,
-                                if_else(employment_status_2022 != employment_status_2024, 1, 0)),
-    income_change = if_else(is.na(household_income_2022) | is.na(household_income_2024), 3,
-                            if_else(household_income_2022 != household_income_2024, 1, 0)),
-    residence_change = if_else(is.na(residence_area_2022) | is.na(residence_area_2024), 3,
-                               if_else(residence_area_2022 != residence_area_2024, 1, 0)),
-    religion_change = if_else(is.na(religion_2022) | is.na(religion_2024), 3,
-                              if_else(religion_2022 != religion_2024, 1, 0))
+    education_change = if_else(
+      is.na(highest_education_2022) | is.na(highest_education_2024) | 
+      highest_education_2022 == "Missing" | highest_education_2024 == "Missing", 
+      3,  # Set as 3 when missing in either year
+      if_else(highest_education_2022 != highest_education_2024, 1, 0)
+    ),
+    
+    employment_change = if_else(
+      is.na(employment_status_2022) | is.na(employment_status_2024) | 
+      employment_status_2022 == "Missing" | employment_status_2024 == "Missing", 
+      3,  # Set as 3 when missing in either year
+      if_else(employment_status_2022 != employment_status_2024, 1, 0)
+    ),
+    
+    income_change = if_else(
+      is.na(household_income_2022) | is.na(household_income_2024) | 
+      household_income_2022 == "Missing" | household_income_2024 == "Missing", 
+      3,  # Set as 3 when missing in either year
+      if_else(household_income_2022 != household_income_2024, 1, 0)
+    ),
+    
+    residence_change = if_else(
+      is.na(residence_area_2022) | is.na(residence_area_2024) | 
+      residence_area_2022 == "Missing" | residence_area_2024 == "Missing", 
+      3,  # Set as 3 when missing in either year
+      if_else(residence_area_2022 != residence_area_2024, 1, 0)
+    ),
+    
+    religion_change = if_else(
+      is.na(religion_2022) | is.na(religion_2024) | 
+      religion_2022 == "Missing" | religion_2024 == "Missing", 
+      3,  # Set as 3 when missing in either year
+      if_else(religion_2022 != religion_2024, 1, 0)
+    ),
+    
+    residence_area_change = if_else(
+      is.na(residence_area_2022) | is.na(residence_area_2024) | 
+      residence_area_2022 == "Missing" | residence_area_2024 == "Missing", 
+      3,  # Set as 3 when missing in either year
+      if_else(residence_area_2022 != residence_area_2024, 1, 0)
+    )
   ) %>%
   select(
     caseid, 
@@ -184,12 +311,12 @@ merged_data <- full_join(data_2022_cleaned, data_2024_cleaned, by = "caseid", su
     marital_status_2022, marital_status_2024, 
     employment_status_2022, employment_status_2024, 
     household_income_2022, household_income_2024, 
-    residence_area_2022, residence_area_2024,
+    residence_area_2022, residence_area_2024, residence_area_change,
     religion_2022, religion_2024, 
     specified_other_religion_2022,
     response_status, response_by, 
-    parent_guardian,
-    lost, 
+    parent_guardian, science_or_religion,
+    lost, religious,
     education_change, employment_change, income_change, residence_change, religion_change
   )
 
@@ -220,10 +347,14 @@ change_percentages <- merged_data %>%
     
     religion_change_0 = mean(religion_change == 0, na.rm = TRUE) * 100,
     religion_change_1 = mean(religion_change == 1, na.rm = TRUE) * 100,
-    religion_change_3 = mean(religion_change == 3, na.rm = TRUE) * 100
+    religion_change_3 = mean(religion_change == 3, na.rm = TRUE) * 100,
+    
+    residence_area_change_0 = mean(residence_area_change == 0, na.rm = TRUE) * 100,  # No change in residence area
+    residence_area_change_1 = mean(residence_area_change == 1, na.rm = TRUE) * 100,  # Changed residence area
+    residence_area_change_3 = mean(residence_area_change == 3, na.rm = TRUE) * 100   # Unknown/missing residence area
   )
-# View the percentage of changes
-print(change_percentages)
+
+change_percentages
 ```
 ```{r}
 dfSummary(merged_data) %>% view()
@@ -243,7 +374,19 @@ income_data <- merged_data %>%
   count(income_change) %>%
   mutate(percentage = n / sum(n) * 100)
 
-# education changes
+residence_data <- merged_data %>%
+  count(residence_change) %>%
+  mutate(percentage = n / sum(n) * 100)
+
+religion_data <- merged_data %>%
+  count(religion_change) %>%
+  mutate(percentage = n / sum(n) * 100)
+
+residence_area_data <- merged_data %>%
+  count(residence_area_change) %>%
+  mutate(percentage = n / sum(n) * 100)
+
+# Create pie charts for each change status
 education_pie <- ggplot(education_data, aes(x = "", y = percentage, fill = factor(education_change))) +
   geom_bar(stat = "identity", width = 1) +
   coord_polar("y", start = 0) +
@@ -251,9 +394,8 @@ education_pie <- ggplot(education_data, aes(x = "", y = percentage, fill = facto
   theme_minimal() +
   theme(axis.text.x = element_blank()) +
   scale_fill_manual(values = c("green", "orange", "red"), 
-                    labels = c("No Change", "Changed", "Unknown"))
+                    labels = c("No Change", "Changed", "Missing"))
 
-# employment changes
 employment_pie <- ggplot(employment_data, aes(x = "", y = percentage, fill = factor(employment_change))) +
   geom_bar(stat = "identity", width = 1) +
   coord_polar("y", start = 0) +
@@ -261,9 +403,8 @@ employment_pie <- ggplot(employment_data, aes(x = "", y = percentage, fill = fac
   theme_minimal() +
   theme(axis.text.x = element_blank()) +
   scale_fill_manual(values = c("green", "orange", "red"), 
-                    labels = c("No Change", "Changed", "Unknown"))
+                    labels = c("No Change", "Changed", "Missing"))
 
-# income changes
 income_pie <- ggplot(income_data, aes(x = "", y = percentage, fill = factor(income_change))) +
   geom_bar(stat = "identity", width = 1) +
   coord_polar("y", start = 0) +
@@ -271,10 +412,38 @@ income_pie <- ggplot(income_data, aes(x = "", y = percentage, fill = factor(inco
   theme_minimal() +
   theme(axis.text.x = element_blank()) +
   scale_fill_manual(values = c("green", "orange", "red"), 
-                    labels = c("No Change", "Changed", "Unknown"))
+                    labels = c("No Change", "Changed", "Missing"))
 
-# Arrange the pie charts in a single plot
-grid.arrange(education_pie, employment_pie, income_pie, ncol = 3)
+residence_pie <- ggplot(residence_data, aes(x = "", y = percentage, fill = factor(residence_change))) +
+  geom_bar(stat = "identity", width = 1) +
+  coord_polar("y", start = 0) +
+  labs(title = "Residence Change Status", fill = "Status", y = "", x = "") +
+  theme_minimal() +
+  theme(axis.text.x = element_blank()) +
+  scale_fill_manual(values = c("green", "orange", "red"), 
+                    labels = c("No Change", "Changed", "Missing"))
+
+religion_pie <- ggplot(religion_data, aes(x = "", y = percentage, fill = factor(religion_change))) +
+  geom_bar(stat = "identity", width = 1) +
+  coord_polar("y", start = 0) +
+  labs(title = "Religion Change Status", fill = "Status", y = "", x = "") +
+  theme_minimal() +
+  theme(axis.text.x = element_blank()) +
+  scale_fill_manual(values = c("green", "orange", "red"), 
+                    labels = c("No Change", "Changed", "Missing"))
+
+residence_area_pie <- ggplot(residence_area_data, aes(x = "", y = percentage, fill = factor(residence_area_change))) +
+  geom_bar(stat = "identity", width = 1) +
+  coord_polar("y", start = 0) +
+  labs(title = "Residence Area Change Status", fill = "Status", y = "", x = "") +
+  theme_minimal() +
+  theme(axis.text.x = element_blank()) +
+  scale_fill_manual(values = c("green", "orange", "red"), 
+                    labels = c("No Change", "Changed", "Missing"))
+
+# Arrange the pie charts in a 2 x 3 layout
+grid.arrange(education_pie, employment_pie, income_pie, residence_pie, religion_pie, residence_area_pie, ncol = 3)
+
 ```
 
 ```{r}
@@ -298,7 +467,7 @@ create_pie_chart <- function(pie_data, title, variable_name) {
     theme_minimal() +
     theme(axis.text.x = element_blank()) +
     scale_fill_manual(values = c("green", "orange", "red"), 
-                      labels = c("No Change", "Changed", "Unknown"))
+                      labels = c("No Change", "Changed", "Missing"))
 }
 
 # Prepare data for pie charts for both groups
@@ -306,97 +475,323 @@ create_pie_chart <- function(pie_data, title, variable_name) {
 education_lost <- prepare_pie_data(lost_data, education_change)
 employment_lost <- prepare_pie_data(lost_data, employment_change)
 income_lost <- prepare_pie_data(lost_data, income_change)
+residence_lost <- prepare_pie_data(lost_data, residence_change)
+religion_lost <- prepare_pie_data(lost_data, religion_change)
+residence_area_lost <- prepare_pie_data(lost_data, residence_area_change)
 
 # For Followed Group
 education_followed <- prepare_pie_data(followed_data, education_change)
 employment_followed <- prepare_pie_data(followed_data, employment_change)
 income_followed <- prepare_pie_data(followed_data, income_change)
+residence_followed <- prepare_pie_data(followed_data, residence_change)
+religion_followed <- prepare_pie_data(followed_data, religion_change)
+residence_area_followed <- prepare_pie_data(followed_data, residence_area_change)
 
 # Create pie charts for lost group
 education_pie_lost <- create_pie_chart(education_lost, "Education Change", education_change)
 employment_pie_lost <- create_pie_chart(employment_lost, "Employment Change", employment_change)
 income_pie_lost <- create_pie_chart(income_lost, "Income Change", income_change)
+residence_pie_lost <- create_pie_chart(residence_lost, "Residence Change", residence_change)
+religion_pie_lost <- create_pie_chart(religion_lost, "Religion Change", religion_change)
+residence_area_pie_lost <- create_pie_chart(residence_area_lost, "Residence Area Change", residence_area_change)
 
 # Create pie charts for followed group
 education_pie_followed <- create_pie_chart(education_followed, "Education Change", education_change)
 employment_pie_followed <- create_pie_chart(employment_followed, "Employment Change", employment_change)
 income_pie_followed <- create_pie_chart(income_followed, "Income Change", income_change)
+residence_pie_followed <- create_pie_chart(residence_followed, "Residence Change", residence_change)
+religion_pie_followed <- create_pie_chart(religion_followed, "Religion Change", religion_change)
+residence_area_pie_followed <- create_pie_chart(residence_area_followed, "Residence Area Change", residence_area_change)
 
 # Arrange the pie charts in two sets (Lost and Followed)
-grid.arrange(education_pie_lost, employment_pie_lost, income_pie_lost, ncol = 3, top = "Lost Group")
-grid.arrange(education_pie_followed, employment_pie_followed, income_pie_followed, ncol = 3, top = "Followed Group")
-```
-```{r}
-#lost_data_filtered <- lost_data %>%
-#  select(all_of(numeric_vars)) %>%
-#  mutate(across(everything(), as.character))
+# Lost group: 2 rows x 3 columns
+grid.arrange(education_pie_lost, employment_pie_lost, income_pie_lost, 
+             residence_pie_lost, religion_pie_lost, residence_area_pie_lost, 
+             ncol = 3, top = "Lost Group")
 
-#followed_data_filtered <- followed_data %>%
-#  select(all_of(numeric_vars)) %>%
-#  mutate(across(everything(), as.character))
-
-#unique_values_count_2022 <- sapply(lost_data_filtered, function(x) length(unique(x)))
-#unique_values_count_2022
-
-#unique_values_count_2024 <- sapply(followed_data_filtered, function(x) length(unique(x)))
-#unique_values_count_2024
+# Followed group: 2 rows x 3 columns
+grid.arrange(education_pie_followed, employment_pie_followed, income_pie_followed, 
+             residence_pie_followed, religion_pie_followed, residence_area_pie_followed, 
+             ncol = 3, top = "Followed Group")
 
 ```
 ```{r}
-#missing_values_lost <- sapply(lost_data %>% select(all_of(numeric_vars)), function(x) sum(is.na(x)))
-#missing_values_followed <- sapply(followed_data %>% select(all_of(numeric_vars)), function(x) sum(is.na(x)))
+# 将分类变量转换为因子
+merged_data$highest_education_2022 <- as.factor(merged_data$highest_education_2022)
+merged_data$employment_status_2022 <- as.factor(merged_data$employment_status_2022)
+merged_data$household_income_2022 <- as.factor(merged_data$household_income_2022)
+merged_data$residence_area_2022 <- as.factor(merged_data$residence_area_2022)
+merged_data$gender_2022 <- as.factor(merged_data$gender_2022)
+merged_data$marital_status_2022 <- as.factor(merged_data$marital_status_2022)
+merged_data$religion_2022 <- as.factor(merged_data$religion_2022)
+merged_data$lost <- as.factor(merged_data$lost)
+merged_data$science_or_religion <- as.factor(merged_data$science_or_religion)
 
-#cat("Missing values in Lost group:\n")
-#print(missing_values_lost)
-#cat("\nMissing values in Followed group:\n")
-#print(missing_values_followed)
+# 创建一个新的数据框，移除包含 "Missing" 和 "Prefer not to answer" 的行
+clean_data <- merged_data %>%
+  filter(
+    !highest_education_2022 %in% c("Missing") &
+    !employment_status_2022 %in% c("Missing") &
+    !household_income_2022 %in% c("Missing") &
+    !residence_area_2022 %in% c("Missing") &
+    !gender_2022 %in% c("Missing") &
+    !marital_status_2022 %in% c("Missing") &
+    !religion_2022 %in% c("Missing")
+    )
+# 删除 specified_other_religion_2022 和 response_by 列
+clean_data <- clean_data %>%
+  select(-specified_other_religion_2022, -response_by)
+
+# 查看清理后的数据
+print(dim(clean_data))  # 检查数据的行数和列数
 
 ```
 
 ```{r}
-# 将分类变量转换为哑变量
-numeric_vars <- c("household_income_2022", "highest_education_2022", "employment_status_2022", "residence_area_2022", 
-                  "gender_2022", "marital_status_2022", "religion_2022")
+# 在清理后的数据上拟合全模型
+clean_model <- glm(lost ~ highest_education_2022 + employment_status_2022 + household_income_2022 + residence_area_2022 + gender_2022 + marital_status_2022 + religion_2022, data = clean_data, family = binomial)
+# 输出模型结果
+summary(clean_model)
+```
 
-# 对Lost Group的分类变量进行哑变量转换
-lost_data_clean <- merged_data %>%
-  filter(lost == 1) %>%
-  select(all_of(numeric_vars)) %>%
-  mutate(across(everything(), as.factor)) %>%
-  model.matrix(~ . - 1, data = .) %>%
+```{r}
+# 拟合简化模型，仅保留显著变量
+simplified_model <- glm(lost ~ employment_status_2022 + gender_2022 + religion_2022, 
+                        data = clean_data, family = binomial)
+# 输出简化模型结果
+summary(simplified_model)
+```
+```{r}
+chi_square_test <- anova(simplified_model, clean_model, test = "Chisq")
+print(chi_square_test)
+```
+
+```{r}
+predicted_probs <- predict(simplified_model, type = "response")
+predicted_class <- ifelse(predicted_probs > 0.5, 1, 0)
+
+# 混淆矩阵
+confusion_matrix <- table(Predicted = predicted_class, Actual = clean_data$lost)
+print("Confusion Matrix:")
+print(confusion_matrix)
+
+# 绘制 ROC 曲线并计算 AUC
+library(pROC)
+roc_curve <- roc(clean_data$lost, predicted_probs)
+
+# 绘制 ROC 曲线
+plot(roc_curve, main = "ROC Curve", col = "blue", lwd = 2)
+auc_value <- auc(roc_curve)
+cat("AUC:", auc_value, "\n")
+
+# 输出 McFadden's R^2
+null_model <- glm(lost ~ 1, data = clean_data, family = binomial)  # 空模型
+r2_mcfadden <- 1 - (logLik(clean_model) / logLik(null_model))
+cat("McFadden's R^2:", r2_mcfadden, "\n")
+```
+```{r}
+# 如果 dependent variable 是多分类变量
+library(nnet)
+multinom_model <- multinom(lost ~ highest_education_2022 + employment_status_2022 + household_income_2022 + 
+                   residence_area_2022 + gender_2022 + marital_status_2022 + religion_2022, data = clean_data)
+summary(multinom_model)
+```
+```{r}
+# 确保 lost 是整数型
+clean_data$lost <- as.integer(clean_data$lost)
+
+poisson_model <- glm(lost ~ highest_education_2022 + employment_status_2022 + household_income_2022 + 
+                   residence_area_2022 + gender_2022 + marital_status_2022 + religion_2022, 
+                     data = clean_data, family = poisson)
+summary(poisson_model)
+
+```
+
+
+```{r}
+# Load necessary libraries
+library(dplyr)
+library(ggplot2)
+
+# Define the categorical variables for conversion to dummy variables
+categorical_vars <- c("household_income_2022", "highest_education_2022", "employment_status_2022", 
+                      "residence_area_2022", "gender_2022", "marital_status_2022", "religion_2022")
+
+# Combine Lost and Followed groups first and add group label
+combined_data <- merged_data %>%
+  mutate(group = if_else(lost == 1, "Lost", "Followed")) %>%
+  select(all_of(categorical_vars), group) %>%
+  filter(!if_any(all_of(categorical_vars), ~ . == "Missing"))
+
+# Convert categorical variables to factors
+combined_data <- combined_data %>%
+  mutate(across(all_of(categorical_vars), as.factor))
+
+# Apply model.matrix to the combined dataset (convert categorical variables to dummy variables)
+combined_data_clean <- model.matrix(~ . - 1, data = combined_data) %>%
   as.data.frame()
 
-# 对Followed Group的分类变量进行哑变量转换
-followed_data_clean <- merged_data %>%
-  filter(lost == 0) %>%
-  select(all_of(numeric_vars)) %>%
-  mutate(across(everything(), as.factor)) %>%
-  model.matrix(~ . - 1, data = .) %>%
-  as.data.frame()
+# Add group column back to the cleaned data
+combined_data_clean$group <- combined_data$group
 
-# 添加分组标签并合并数据
-lost_data_clean$group <- "Lost"
-followed_data_clean$group <- "Followed"
-combined_data_clean <- rbind(lost_data_clean, followed_data_clean)
-
-# 去除 group 列用于 PCA
+# Remove the group column before running PCA
 combined_data_for_pca <- combined_data_clean %>%
-  select(-group)  # 不将分组信息用于PCA
+  select(-group)
 
-# 对合并的数据进行PCA分析
+# Remove columns with zero variance (constant columns)
+combined_data_for_pca <- combined_data_for_pca[, apply(combined_data_for_pca, 2, var) != 0]
+
+# Perform PCA on the cleaned data, scaling the variables
 combined_pca <- prcomp(scale(combined_data_for_pca), center = TRUE, scale. = TRUE)
 
-# 提取前两个主成分并加入分组信息
+# Extract the first two principal components and add group labels back
 pca_df <- as.data.frame(combined_pca$x[, 1:2])
 pca_df$group <- combined_data_clean$group
 
-# 使用ggplot2绘制PCA结果
-library(ggplot2)
-
+# Plot the PCA results using ggplot2
 ggplot(pca_df, aes(x = PC1, y = PC2, color = group)) +
   geom_point() +
   labs(title = "PCA: Lost vs Followed Groups", x = "Principal Component 1", y = "Principal Component 2") +
   theme_minimal()
 
 ```
+
+
+
+```{r}
+# Initial setup for categorical variables
+categorical_vars <- c("household_income_2022", "highest_education_2022", "employment_status_2022", 
+                      "residence_area_2022", "gender_2022", "marital_status_2022", "religion_2022")
+
+# Combine Lost and Followed groups first and add group label
+combined_data <- merged_data %>%
+  mutate(group = if_else(lost == 1, "Lost", "Followed")) %>%
+  select(all_of(categorical_vars), group) %>%
+  filter(!if_any(all_of(categorical_vars), ~ . == "Missing"))
+
+# Convert categorical variables to factors
+combined_data <- combined_data %>%
+  mutate(across(all_of(categorical_vars), as.factor))
+
+# Apply model.matrix to the combined dataset (with consistent dummy variables for both groups)
+combined_data_clean <- model.matrix(~ . - 1, data = combined_data) %>%
+  as.data.frame()
+
+# Add group column back to the cleaned data
+combined_data_clean$group <- combined_data$group
+
+# Remove the group column before running PCA
+combined_data_for_pca <- combined_data_clean %>%
+  select(-group)
+
+# Identify and remove columns with zero variance
+combined_data_for_pca <- combined_data_for_pca[, apply(combined_data_for_pca, 2, var) != 0]
+
+# 1. Standardize the data
+combined_data_for_pca_scaled <- scale(combined_data_for_pca)
+
+# 2. Perform PCA on the scaled data
+combined_pca_scaled <- prcomp(combined_data_for_pca_scaled, center = TRUE, scale. = TRUE)
+
+# 3. Calculate explained variance
+explained_variance <- combined_pca_scaled$sdev^2 / sum(combined_pca_scaled$sdev^2)
+
+# 4. Plot the explained variance for each principal component
+explained_variance_df <- data.frame(
+  PC = seq_along(explained_variance),
+  Variance = explained_variance
+)
+
+ggplot(explained_variance_df, aes(x = PC, y = Variance)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Explained Variance by Principal Components", x = "Principal Component", y = "Variance Explained") +
+  theme_minimal()
+
+# 5. Extract the first two principal components and plot PCA
+pca_df_scaled <- as.data.frame(combined_pca_scaled$x[, 1:2])
+pca_df_scaled$group <- combined_data_clean$group
+
+# Plot PCA results
+ggplot(pca_df_scaled, aes(x = PC1, y = PC2, color = group)) +
+  geom_point() +
+  labs(title = "Scaled PCA: Lost vs Followed Groups", x = "Principal Component 1", y = "Principal Component 2") +
+  theme_minimal()
+
+# 6. Identify outliers based on PCA results
+outliers <- pca_df_scaled %>%
+  filter(PC1 < -10 | PC2 < -10)
+
+# 7. Remove outliers and re-plot PCA without outliers
+pca_df_cleaned <- pca_df_scaled %>%
+  filter(PC1 > -10 & PC2 > -10)  # Assuming -10 is the threshold for outliers
+
+# Re-plot PCA without outliers
+ggplot(pca_df_cleaned, aes(x = PC1, y = PC2, color = group)) +
+  geom_point() +
+  labs(title = "PCA without Outliers: Lost vs Followed Groups", x = "Principal Component 1", y = "Principal Component 2") +
+  theme_minimal()
+
+
+```
+```{r}
+# Calculate the proportion of variance explained by each component
+explained_variance <- combined_pca_scaled$sdev^2 / sum(combined_pca_scaled$sdev^2)
+
+# Calculate the cumulative explained variance
+cumulative_explained_variance <- cumsum(explained_variance)
+
+# Plot the cumulative explained variance
+plot(cumulative_explained_variance, type = "b", xlab = "Number of Components", ylab = "Cumulative Explained Variance",
+     main = "Cumulative Explained Variance by Principal Components")
+
+# Add a horizontal line for 80% explained variance
+abline(h = 0.80, col = "red", lty = 2)
+abline(h = 0.90, col = "blue", lty = 2)
+
+# Determine how many components explain at least 80% variance
+components_80 <- which(cumulative_explained_variance >= 0.80)[1]
+components_90 <- which(cumulative_explained_variance >= 0.90)[1]
+
+print(paste("Number of components to retain for 80% variance:", components_80))
+print(paste("Number of components to retain for 90% variance:", components_90))
+
+```
+
+```{r}
+# Convert categorical variables to dummy variables and remove rows containing "Missing"
+combined_data <- merged_data %>%
+  mutate(group = if_else(lost == 1, "Lost", "Followed")) %>%
+  select(all_of(categorical_vars), group) %>%
+  filter(!if_any(all_of(categorical_vars), ~ . == "Missing")) %>%
+  mutate(across(all_of(categorical_vars), as.factor))
+
+# Apply model.matrix to convert the categorical variables into dummy variables
+combined_data_clean <- model.matrix(~ . - 1, data = combined_data) %>%
+  as.data.frame()
+
+# Remove duplicate rows before running t-SNE
+combined_data_clean <- combined_data_clean %>%
+  distinct()
+
+# Extract the group information for later plotting
+group_labels <- combined_data$group[1:nrow(combined_data_clean)]  # Ensure it matches the reduced dataset size
+
+# Perform t-SNE on the dummy variables, setting a perplexity value (typically between 5 and 50)
+set.seed(42)  # Set seed for reproducibility
+tsne_results <- Rtsne(as.matrix(combined_data_clean), dims = 2, perplexity = 10, verbose = TRUE, max_iter = 1000)
+
+# Convert t-SNE results into a data frame for plotting
+tsne_df <- as.data.frame(tsne_results$Y)
+colnames(tsne_df) <- c("Dim1", "Dim2")
+tsne_df$group <- group_labels
+
+# Plot the t-SNE results using ggplot2
+ggplot(tsne_df, aes(x = Dim1, y = Dim2, color = group)) +
+  geom_point() +
+  labs(title = "t-SNE: Lost vs Followed Groups", x = "t-SNE Dimension 1", y = "t-SNE Dimension 2") +
+  theme_minimal()
+
+```
+
+
 
