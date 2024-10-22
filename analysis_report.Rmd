@@ -1,0 +1,317 @@
+---
+title: "biostats_consulting_analysis_report"
+output:
+  pdf_document:
+    toc: yes
+    latex_engine: "xelatex"
+    extra_dependencies: ["subcaption"]
+  word_document:
+    toc: yes
+  html_document:
+    highlight: espresso
+    toc: yes
+date: "`r Sys.Date()`"
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Data Handling
+
+## Variable Renaming and Selection
+
+In the first step of the data handling process, we renamed several key variables to make them more intuitive and reflective of the actual content.
+
+### From the 2022 dataset:
+- `sec1_q1` → `dob` (Date of Birth)
+- `sec1_q4` → `gender` (Gender)
+- `sec1_q5` → `highest_education` (Highest Level of Education)
+- `sec1_q6` → `employment_status` (Employment Status)
+- `sec1_q7` → `marital_status` (Marital Status)
+- `sec1_q8` → `household_income` (Household Income)
+- `sec1_q9` → `residence_area` (Residence Area)
+- `sec1_q10` → `survey_location` (Survey Location)
+- `sec11_start` → `survey_duration` (Survey Duration)
+- `sec11_q156` → `religious` (Religious Belief)
+- `sec11_q157` → `religion` (Religion)
+- `sec11_q157other` → `specified_other_religion` (Specified Other Religion)
+- `sec11_q158` → `science_contradict` (Belief Science Contradicts Religion)
+- `sec11_q159` → `science_or_religion` (Preference Between Science and Religion)
+
+Additionally, unnecessary variables such as `consent` and `availability` were removed from the dataset to simplify the data structure and focus on relevant variables.
+
+### From the 2024 dataset:
+- `birthdate` → `dob` (Date of Birth)
+- `response_1` → `response_status` (Response Status)
+- `response_2` → `response_by` (Response Collected By)
+- `educ_level` → `highest_education` (Highest Level of Education)
+- `employ_status` → `employment_status` (Employment Status)
+- `number_people` → `people_speak_to_daily` (Number of People Spoken to Daily)
+- `hh_income` → `household_income` (Household Income)
+- `religion_oth` → `specified_other_religion` (Specified Other Religion)
+- `call_status` → `call_status` (Call Status)
+
+We selected additional variables relevant to the 2024 data:
+- `caseid` (Unique Case ID)
+- `gender` (Gender)
+- `marital_status` (Marital Status)
+- `parent_guardian` (Parent/Guardian Status)
+- `work_industry` (Industry of Work)
+- `survey_date` (Date of the Survey)
+
+After renaming and selecting these variables, the datasets are now more structured and ready for the next steps in data cleaning and analysis.
+
+## Logical Recoding
+
+During the data cleaning process, several categorical variables were logically recoded to simplify the categories and ensure that they were statistically meaningful. Below is a detailed walkthrough of the specific recoding processes applied to key variables for both datasets.
+
+### **Religion (`religion`)**
+
+### For `data_2022_cleaned`:
+- We noticed that the original `religion` variable in `data_2022_cleaned` contained several categories with very small counts, which would reduce the statistical power of our analysis. Therefore, we grouped smaller religious affiliations into broader categories:
+  
+  - **Original categories**: “CCAP,” “Traditional African religion,” “Seventh Day Adventists,” “Pentecostal/Protestant Church,” and many smaller specific denominations.
+  
+  - **Recoding**:
+    - Categories such as "CCAP" and "Traditional African religion" were grouped into a broader "Other" category.
+    - Smaller Christian denominations such as “Seventh Day Adventists,” “Assembly of God Church,” “Jehovah’s Witness,” and others were grouped into the “Other Christian” category.
+    - Responses such as “Prefer not to answer” were kept in a standardized format as “Prefer not to answer [do not read aloud].”
+
+### For `data_2024_cleaned`:
+- Similar to `data_2022_cleaned`, the `religion` variable in `data_2024_cleaned` was recoded in a consistent manner:
+  
+  - **Original categories**: Similar religious affiliations as in the 2022 data.
+  
+  - **Recoding**:
+    - Categories like “Seventh Day Adventists,” “Pentecostal/Protestant Church,” and other smaller denominations were grouped into the "Other Christian" category.
+    - Categories such as "Akorino" and "Traditional African religion" were grouped into the "Other" category.
+    - Any "Prefer not to answer" responses were relabeled for consistency.
+
+### **Employment Status (`employment_status`)**
+
+### For `data_2022_cleaned`:
+- The `employment_status` variable in `data_2022_cleaned` initially contained a large number of specific employment types. We recoded these categories to create fewer, more meaningful groupings:
+
+  - **Original categories**: Categories such as “Self-employed (includes agribusiness),” “Peasant farmer,” “Government employee,” and “Prefer not to answer” were initially present.
+  
+  - **Recoding**:
+    - Categories like “Self-employed (includes agribusiness)” and “Peasant farmer” were combined into a new “Self-employed” category, reducing the number of categories and focusing on the nature of employment.
+    - Responses such as “Prefer not to answer” were retained and standardized.
+
+### For `data_2024_cleaned`:
+- The `employment_status` variable in `data_2024_cleaned` was also recoded similarly:
+
+  - **Recoding**:
+    - Similar employment types, such as “Self-employed” and “Peasant farmer,” were grouped into the "Self-employed" category.
+    - Missing employment data were recoded as "Missing" to ensure completeness in the dataset.
+
+### **Other Categorical Variables**
+
+### For `data_2022_cleaned`:
+- Other categorical variables such as `marital_status`, `parent_guardian`, and `household_income` were standardized:
+  - For any missing values in `marital_status`, we used a "Missing" category to ensure data completeness.
+  - The `parent_guardian` variable was recoded to include only relevant responses, with any unclear or missing data labeled as "Missing."
+
+### For `data_2024_cleaned`:
+- Similar recoding was applied to `marital_status`, `work_industry`, and other key variables in `data_2024_cleaned`:
+  - Missing values were treated uniformly across all categorical variables, with "Missing" used as a placeholder where necessary.
+  
+### **Standardization Across Datasets**
+
+For both datasets (`data_2022_cleaned` and `data_2024_cleaned`), we ensured that categorical variables were standardized, particularly for `religion`, `employment_status`, and other demographics, so that the datasets could be merged seamlessly. This standardization allows for a more consistent and reliable comparison across both time periods.
+
+
+## Data Merging and Imputation
+
+We merged the 2022 and 2024 datasets using a common unique identifier (`caseid`). During this process, missing values in the 2024 dataset were imputed using data from the 2022 dataset. For instance, if gender or date of birth information was missing in the 2024 data, it was filled using the corresponding values from the 2022 dataset. This ensured that our data was complete and minimized the bias introduced by missing data.
+
+- **Imputation of Missing Values**: If a key variable (such as gender or date of birth) was missing in the 2024 data, we used the values from the 2022 dataset to fill in the gaps. In cases where both datasets were missing a particular value, we coded the value as "Unknown."
+
+# Exploratory Analysis
+
+## Summary Statistics
+
+We start by providing summary statistics for key variables across both datasets (2022 and 2024) to give an overview of the data. The file is attached as seperate summary pdf.
+
+## Missing Data Analysis
+
+We investigated the percentage of missing data for key variables in both datasets. Below are bar charts illustrating the missing data percentages:
+
+![Missing Values](S:/biostats_consulting_lab/missing.png)
+
+
+### Pie Charts
+\begin{figure}[htbp]
+    \centering
+    \begin{subfigure}[b]{0.32\textwidth}
+        \includegraphics[width=\textwidth]{S:/biostats_consulting_lab/changes_lost.png}
+        \caption{Changes in Lost Group}
+        \label{fig:changes_lost}
+    \end{subfigure}
+    \begin{subfigure}[b]{0.32\textwidth}
+        \includegraphics[width=\textwidth]{S:/biostats_consulting_lab/changes_followed.png}
+        \caption{Changes in Followed Group}
+        \label{fig:changes_followed}
+    \end{subfigure}
+    \caption{Comparing Changes in Social-economic Variables across Different Groups}
+    \label{fig:changes_overview}
+\end{figure}
+
+
+
+
+
+- The 2024 dataset shows significantly more missing data compared to 2022. This may hinder our ability to fully account for the changes between the two time points. The missing data in key variables such as employment status, income, and education is particularly problematic for the analysis.
+
+\section{Bivariate Analysis}
+
+\subsection{Overview}
+In our bivariate analysis, we assessed the relationship between pairs of categorical variables using either the Chi-Square Test or Fisher’s Exact Test, depending on the structure of the contingency tables. The choice of the test was based on the following criteria:
+
+\subsection{Test Selection Logic}
+
+\begin{itemize}
+    \item \textbf{Chi-Square Test}: Used when all expected cell counts in the contingency table were greater than or equal to 5. This ensured the validity of the Chi-Square approximation for determining the p-values.
+    \item \textbf{Fisher’s Exact Test}: Applied when any expected cell counts were less than 5. Fisher’s Exact Test provided reliable results in cases with small sample sizes or sparse data.
+\end{itemize}
+
+For larger tables where exact Fisher’s calculations would be computationally intensive, we applied a Monte Carlo approximation to estimate p-values.
+
+\subsection{Multiple Testing Correction}
+Since multiple tests were conducted, we applied the Benjamini-Hochberg (BH) correction to control the false discovery rate (FDR) and reduce the likelihood of Type I errors. This adjustment was made across all p-values to ensure robustness of the results.
+
+\subsection{Findings}
+The bivariate analysis for both 2022 and 2024 data revealed several significant associations between social-economic variables. In both datasets, gender was significantly associated with variables such as highest education, marital status, and employment status, indicating potential differences in these attributes across genders. Additionally, highest education was strongly linked to employment status, marital status, and work industry in both years, suggesting a consistent pattern between educational attainment and socio-economic outcomes. In the 2022 dataset, variables like marital status and household income showed significant relationships, particularly with residence area and religion. The associations observed across multiple variables reflect potential socio-economic dynamics that could be influenced by factors like gender, education, and employment status.
+
+\begin{table}[htbp]
+\centering
+\caption{Significant Bivariate Analysis Results for 2022}
+\begin{tabular}{|l|l|l|l|l|}
+\hline
+\textbf{Variable\_1} & \textbf{Variable\_2} & \textbf{Test} & \textbf{P\_value} & \textbf{Adjusted\_P\_value} \\ \hline
+gender               & highest\_education   & Fisher's Exact Test (Simulated) & 0.0314    & 0.0585143  \\ \hline
+gender               & marital\_status      & Fisher's Exact Test (Simulated) & 0.0000    & 0.0000000  \\ \hline
+gender               & employment\_status   & Fisher's Exact Test (Simulated) & 0.0000    & 0.0000000  \\ \hline
+highest\_education   & marital\_status      & Fisher's Exact Test (Simulated) & 0.0000    & 0.0000000  \\ \hline
+highest\_education   & employment\_status   & Fisher's Exact Test (Simulated) & 0.0000    & 0.0000000  \\ \hline
+highest\_education   & work\_industry       & Fisher's Exact Test (Simulated) & 0.0000    & 0.0000000  \\ \hline
+highest\_education   & people\_speak\_to\_daily & Chi-Square Test            & 0.0000    & 0.0000000  \\ \hline
+marital\_status      & household\_income    & Fisher's Exact Test (Simulated) & 0.0009    & 0.0023850  \\ \hline
+marital\_status      & residence\_area      & Fisher's Exact Test (Simulated) & 0.0278    & 0.0566692  \\ \hline
+marital\_status      & religion             & Fisher's Exact Test (Simulated) & 0.0014    & 0.0035333  \\ \hline
+household\_income    & residence\_area      & Fisher's Exact Test (Simulated) & 0.0009    & 0.0023850  \\ \hline
+household\_income    & survey\_location     & Fisher's Exact Test (Simulated) & 0.0008    & 0.0023556  \\ \hline
+\end{tabular}
+\end{table}
+
+\begin{table}[htbp]
+\centering
+\caption{Significant Bivariate Analysis Results for 2024}
+\begin{tabular}{|l|l|l|l|l|}
+\hline
+\textbf{Variable\_1} & \textbf{Variable\_2} & \textbf{Test} & \textbf{P\_value} & \textbf{Adjusted\_P\_value} \\ \hline
+gender               & highest\_education   & Fisher's Exact Test (Simulated) & 0.0314    & 0.0585143  \\ \hline
+gender               & marital\_status      & Fisher's Exact Test (Simulated) & 0.0000    & 0.0000000  \\ \hline
+gender               & employment\_status   & Fisher's Exact Test (Simulated) & 0.0000    & 0.0000000  \\ \hline
+gender               & work\_industry       & Fisher's Exact Test (Simulated) & 0.0000    & 0.0000000  \\ \hline
+gender               & people\_speak\_to\_daily & Chi-Square Test            & 0.0000    & 0.0000000  \\ \hline
+highest\_education   & marital\_status      & Fisher's Exact Test (Simulated) & 0.0000    & 0.0000000  \\ \hline
+highest\_education   & employment\_status   & Fisher's Exact Test (Simulated) & 0.0000    & 0.0000000  \\ \hline
+\end{tabular}
+\end{table}
+
+# PCA and t-SNE Analysis of Lost vs Followed Groups
+
+We performed PCA and t-SNE to explore potential differences in distribution between the 'lost' and 'followed' groups.
+
+\begin{figure}[htbp]
+    \centering
+    \begin{subfigure}[b]{0.48\textwidth}
+        \includegraphics[width=\textwidth]{S:/biostats_consulting_lab/PCA.png}
+        \caption{2-dimensional PCA on Lost and Followed Group}
+        \label{fig:PCA}
+    \end{subfigure}
+    \begin{subfigure}[b]{0.48\textwidth}
+        \includegraphics[width=\textwidth]{S:/biostats_consulting_lab/TSNE.png}
+        \caption{TSNE on Lost and Followed Group}
+        \label{fig:TSNE}
+    \end{subfigure}
+    \caption{Comparing PCA and TSNE on Lost and Followed Groups}
+    \label{fig:PCA_TSNE}
+\end{figure}
+
+
+### Discussion
+
+- The PCA and t-SNE analyses do not show significant separation between the 'lost' and 'followed' groups. This suggests that there are no obvious differences between the two groups in terms of the available data.
+- However, this may be due to the low-dimensional nature of the data, which limits the ability of these methods to capture more subtle distinctions.
+
+# Logistic Regression Results
+
+- Gender (Male) was a significant predictor of being lost (p = 0.015), indicating that males were less likely to be lost compared to females.
+- Religion (Muslim) was also a significant predictor (p = 0.0126), suggesting that individuals identifying as Muslim had a higher likelihood of being lost compared to other religious groups.
+- Employment status showed a marginal effect for those employed full-time (p = 0.078), but overall employment status was not a strong predictor.
+
+
+# Prospective Analysis Plan
+
+\subsection{Research Question}
+What demographic features are associated with loss-to-follow-up?
+
+\subsection{Dataset Information}
+Data from phone surveys conducted in Kenya in 2022 and 2024. The survey in 2024 is the follow-up of the one conducted in 2022.
+
+\subsection{Outcome Variables}
+\begin{itemize}
+    \item \textbf{Primary Outcome}: Any type of loss to follow-up (composite outcome).
+    \item \textbf{Secondary Outcome}: Specific types of loss to follow-up (categorized, e.g., unreachable, refusal to continue, or withdrawal).
+\end{itemize}
+
+\subsection{Predictor Variables}
+\begin{itemize}
+    \item Gender (male vs. female)
+    \item Age (in brackets: <18, 19-25, 26-45, etc.)
+    \item Residence area (city vs. town vs. urban)
+    \item Marital status
+    \item Education level
+    \item Household income
+    \item Religion
+\end{itemize}
+Only the demographic variables from the 2022 data will be used.
+
+\subsection{Data Management and Preparation}
+In the data management and preparation phase, datasets from 2022 and 2024 will be merged. Missing data, particularly for the primary demographic variables, will be identified and managed. A "lost to follow-up" variable will be created to indicate whether a respondent was successfully followed up in 2024. 
+
+Missing data will be handled using Multiple Imputation by Chained Equations (MICE), and a sensitivity analysis will be performed using complete cases only. Demographic variables will be transformed into categorical variables where applicable (e.g., gender, age brackets). Continuous variables such as education level, income, and other socioeconomic variables will be grouped based on meaningful categories or percentiles.
+
+\subsection{Statistical Methods}
+\begin{enumerate}
+    \item \textbf{Descriptive Statistics}:
+    \begin{itemize}
+        \item Table 1: Descriptive statistics for all demographic features, including counts and percentages (n, \%) for each category (e.g., gender, education, residence area).
+    \end{itemize}
+
+    \item \textbf{Univariate Analysis}:
+    \begin{itemize}
+        \item Logistic regression models will be conducted for each demographic variable independently, predicting the binary outcome of "loss to follow-up".
+    \end{itemize}
+
+    \item \textbf{Multivariate Analysis}:
+    \begin{itemize}
+        \item Multivariate logistic regression will be used to identify independent predictors of loss to follow-up, adjusting for all significant demographic variables.
+    \end{itemize}
+
+    \item \textbf{Model Performance}:
+    \begin{itemize}
+        \item Assess the fit of the multivariate model using goodness-of-fit statistics (e.g., Hosmer-Lemeshow test).
+        \item Evaluate potential multicollinearity using Variance Inflation Factors (VIF).
+    \end{itemize}
+\end{enumerate}
+
+# Questions to go through
+
+1, Define loss and followed.
+2. Define the specific variables of interests.
+3. Time Table
