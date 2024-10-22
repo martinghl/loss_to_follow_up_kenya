@@ -9,7 +9,7 @@ output:
   html_document:
     highlight: espresso
     toc: yes
-date: "2024-10-05"
+date: "r Sys.Date()"
 ---
 
 ```{r setup, include=FALSE}
@@ -27,6 +27,7 @@ library(stringr)
 library(Rtsne)
 library(reshape2)
 library(car)
+library(gtsummary)
 ```
 
 ```{r, warning=FALSE}
@@ -133,8 +134,6 @@ data_2024_cleaned <- data_2024 %>%
   mutate(religion = replace_na(religion, "Missing"))
 
   
-  
-
 data_2024_cleaned <- data_2024_cleaned %>%
   left_join(data_2022_cleaned %>% select(caseid, gender, religion, dob), by = "caseid", suffix = c("_2024", "_2022")) %>%
   mutate(
@@ -225,6 +224,9 @@ data_2022_cleaned <- data_2022_cleaned %>%
 data_2024_cleaned <- data_2024_cleaned %>%
   semi_join(data_2022_cleaned, by = "caseid")  # 仅保留2022中存在的caseid
 ```
+
+
+
 ```{r}
 # Function to calculate percentage of missing values
 calculate_missing_percentage <- function(data) {
@@ -241,19 +243,21 @@ missing_2024 <- calculate_missing_percentage(data_2024_cleaned)
 plot_2022 <- ggplot(missing_2022, aes(x = reorder(variable, -missing_percentage), y = missing_percentage)) +
   geom_bar(stat = "identity", fill = "red") +
   coord_flip() +
-  labs(title = "Percentage of Missing Values in data_2022_cleaned", x = "Variables", y = "Missing Percentage (%)") +
+  labs(title = "Missing in data_2022", x = "Variables", y = "Missing Percentage (%)") +
   theme_minimal()
 
 # Plot missing values for data_2024_cleaned
 plot_2024 <- ggplot(missing_2024, aes(x = reorder(variable, -missing_percentage), y = missing_percentage)) +
   geom_bar(stat = "identity", fill = "red") +
   coord_flip() +
-  labs(title = "Percentage of Missing Values in data_2024_cleaned", x = "Variables", y = "Missing Percentage (%)") +
+  labs(title = "Missing in data_2024", x = "Variables", y = "Missing Percentage (%)") +
   theme_minimal()
 
-# Display the plots
-plot_2022
-plot_2024
+# Combine the two plots into one, displayed side by side
+combined_plot <- grid.arrange(plot_2022, plot_2024, ncol = 2)
+
+# Display the combined plot
+combined_plot
 
 ```
 
@@ -323,6 +327,10 @@ merged_data <- full_join(data_2022_cleaned, data_2024_cleaned, by = "caseid", su
 # View the first few rows to verify the new order
 head(merged_data)
 
+```
+
+```{r}
+dfSummary(merged_data) %>% view()
 ```
 
 ```{r}
@@ -792,6 +800,111 @@ ggplot(tsne_df, aes(x = Dim1, y = Dim2, color = group)) +
   theme_minimal()
 
 ```
+```{r}
+data_2022_cleaned[data_2022_cleaned == "Missing"] <- NA
+data_2024_cleaned[data_2024_cleaned== "Missing"] <- NA
+```
+
+```{r}
+# 加载必要的库
+library(dplyr)
+library(kableExtra)
+
+# 将字符型变量转换为因子型变量，但排除 'caseid' 和 'dob'
+data_2022_cleaned <- data_2022_cleaned %>%
+  mutate(across(where(is.character) & !c(caseid, dob), as.factor))
+data_2024_cleaned <- data_2024_cleaned %>%
+  mutate(across(where(is.character) & !c(caseid, dob), as.factor))
+# 执行卡方检验或Fisher检验并带有进度条的双变量分析函数
+perform_bivariate_tests <- function(data) {
+  
+  # 获取所有分类变量的列表（排除 'caseid' 和 'dob'）
+  categorical_vars <- names(data)[sapply(data, is.factor)]
+  
+  # 创建一个空的数据框来存储结果
+  results <- data.frame(
+    Variable_1 = character(),
+    Variable_2 = character(),
+    Test = character(),
+    P_value = numeric(),
+    stringsAsFactors = FALSE
+  )
+  
+  # 计算所有可能的比较次数（组合数 nC2）
+  total_comparisons <- choose(length(categorical_vars), 2)
+  
+  # 初始化进度条
+  pb <- txtProgressBar(min = 0, max = total_comparisons, style = 3)
+  progress <- 0  # 初始化进度
+  
+  # 遍历所有分类变量对
+  for (i in 1:(length(categorical_vars) - 1)) {
+    for (j in (i + 1):length(categorical_vars)) {
+      var1 <- categorical_vars[i]
+      var2 <- categorical_vars[j]
+      
+      # 创建列联表，忽略 NA 值
+      contingency_table <- table(data[[var1]], data[[var2]], useNA = "no")
+      
+      # 检查列联表是否有效（即每行和每列都至少有一个非零计数）
+      if (all(rowSums(contingency_table) > 0) && all(colSums(contingency_table) > 0)) {
+        
+        # 检查列联表是否太大以至于无法进行Fisher检验
+        if (prod(dim(contingency_table)) > 2e5) {
+          # 对于较大的表使用卡方检验
+          test_result <- chisq.test(contingency_table)
+          p_value <- test_result$p.value
+          test_used <- "Chi-Square Test (Large Table)"
+        } else {
+          # 执行卡方检验并检查预期计数
+          test_result <- chisq.test(contingency_table)
+          if (any(test_result$expected < 5)) {
+            # 对较小的表使用Fisher精确检验，并使用 Monte Carlo 近似
+            fisher_result <- fisher.test(contingency_table, simulate.p.value = TRUE, B = 1e5)  # B 是模拟的迭代次数
+            p_value <- fisher_result$p.value
+            test_used <- "Fisher's Exact Test (Simulated)"
+          } else {
+            # 如果预期计数足够，则使用卡方检验
+            p_value <- test_result$p.value
+            test_used <- "Chi-Square Test"
+          }
+        }
+        
+        # 将结果追加到数据框
+        results <- rbind(results, data.frame(
+          Variable_1 = var1,
+          Variable_2 = var2,
+          Test = test_used,
+          P_value = round(p_value, 4)
+        ))
+      }
+      
+      # 更新进度条
+      progress <- progress + 1
+      setTxtProgressBar(pb, progress)
+    }
+  }
+  
+  # 关闭进度条
+  close(pb)
+  
+  # 对 p 值进行 Benjamini-Hochberg (BH) 校正
+  results$Adjusted_P_value <- p.adjust(results$P_value, method = "BH")
+  
+  # 返回整洁的结果表格
+  results %>%
+    kable() %>%
+    kable_styling(full_width = FALSE, position = "center", bootstrap_options = c("striped", "hover", "condensed"))
+}
 
 
+```
+
+
+```{r}
+# 示例用法：对数据集执行双变量分析
+bir_2022 <- perform_bivariate_tests(data_2022_cleaned)
+bir_2024 <- perform_bivariate_tests(data_2024_cleaned)
+
+```
 
