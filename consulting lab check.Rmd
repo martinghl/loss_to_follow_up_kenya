@@ -1,0 +1,147 @@
+---
+title: "consulting lab"
+author: "Wenqian Zheng"
+date: "2024-10-22"
+output:
+  pdf_document: default
+  html_document: default
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(haven)
+library(readxl)
+library(readr)
+```
+
+```{r, warning=FALSE}
+data_2022 <- read_csv("/Users/debbiez/Downloads/cleaned_2022_survey_dta.csv")
+data_2024 <- read_csv("/Users/debbiez/Downloads/cleaned_2024_survey_dta.csv")
+data_2022_un <- read_dta("/Users/debbiez/Downloads/2022SurveyedPeople.dta")
+data_2024_un <-read_dta("/Users/debbiez/Downloads/2024SurveyedPeople.dta")
+```
+```{r}
+#check for income
+filter_in <-merged_data[merged_data$income_change == 1, ]
+ids_change_in <- filter_in$caseid
+
+in_original <- data_2022_un %>%
+  filter(caseid %in% ids_change_in ) %>%
+  select(caseid, sec1_q8)
+
+in_cleaned <- data_2022 %>%
+  filter(caseid %in% ids_change_in) %>%
+  select(caseid, sec1_q8)
+```
+
+
+```{r}
+comparison_in <- merge(in_original, in_cleaned, by = "caseid", suffixes = c(".original", ".cleaned"))
+comparison_in$sec1_q8.original <- as.character(comparison_in$sec1_q8.original)
+comparison_in$sec1_q8.cleaned <- as.character(comparison_in$sec1_q8.cleaned)
+labels_vector <- c(`1` = "Allowed me to build my savings", `2` = "Allowed me to save just a little", `3` = "Only just met my expenses", `4` = "Was not sufficient, so needed to use savings to meet expenses", `5` = "Was really not sufficient, so needed to borrow to meet expenses", `-999` = "Prefer not to answer [do not read aloud]" )
+
+comparison_in$sec1_q8.original <- labels_vector[as.character(comparison_in$sec1_q8.original)]
+comparison_in$change_detected <- comparison_in$sec1_q8.original != comparison_in$sec1_q8.cleaned
+comparison_in
+num_true <- sum(comparison_in$change_detected == TRUE)
+num_true
+```
+
+```{r}
+#check for employment
+filter_em <-merged_data[merged_data$employment_change == 1, ]
+ids_change_em <- filter_em$caseid
+
+em_original <- data_2022_un %>%
+  filter(caseid %in% ids_change_em ) %>%
+  select(caseid, sec1_q6)
+
+em_cleaned <- data_2022 %>%
+  filter(caseid %in% ids_change_em) %>%
+  select(caseid, sec1_q6)
+```
+
+
+```{r}
+comparison <- merge(em_original, em_cleaned, by = "caseid", suffixes = c(".original", ".cleaned"))
+comparison$sec1_q6.original <- as.character(comparison$sec1_q6.original)
+comparison$sec1_q6.cleaned <- as.character(comparison$sec1_q6.cleaned)
+labels_vector <- c(`1` = "Employed full-time", `2` = "Employed part-time", `3` = "Casual laborer",
+                   `4` = "Self-employed", `5` = "Not employed but looking for work", 
+                   `6` = "Not employed and not looking for work",  
+                   `-999` = "Prefer not to answer [do not read aloud]")
+
+comparison$sec1_q6.original <- labels_vector[as.character(comparison$sec1_q6.original)]
+comparison$change_detected <- comparison$sec1_q6.original != comparison$sec1_q6.cleaned
+comparison
+num_true <- sum(comparison$change_detected == TRUE)
+num_true
+```
+```{r}
+#check for residence
+filter_resi <-merged_data[merged_data$residence_change == 1, ]
+ids_change_resi <- filter_resi$caseid
+
+resi_original <- data_2022_un %>%
+  filter(caseid %in% ids_change_resi ) %>%
+  select(caseid, sec1_q9)
+
+resi_cleaned <- data_2022 %>%
+  filter(caseid %in% ids_change_resi) %>%
+  select(caseid, sec1_q9)
+```
+
+```{r}
+comparison_resi <- merge(resi_original, resi_cleaned, by = "caseid", suffixes = c(".original", ".cleaned"))
+comparison_resi$sec1_q9.original <- as.character(comparison_resi$sec1_q9.original)
+comparison_resi$sec1_q9.cleaned <- as.character(comparison_resi$sec1_q9.cleaned)
+labels_vector <- c(`1` = "City (urban)", `2` = "Trading Center (town)", `3` = "Village (rural)")
+
+comparison_resi$sec1_q9.original <- labels_vector[as.character(comparison_resi$sec1_q9.original)]
+comparison_resi$change_detected <- comparison_resi$sec1_q9.original != comparison_resi$sec1_q9.cleaned
+
+comparison_resi
+num_true <- sum(comparison_resi$change_detected == TRUE)
+num_true
+```
+
+```{r}
+#check for religion
+filter_reli<-merged_data[merged_data$religion_change == 1, ]
+
+ids_change_reli <- filter_reli$caseid
+
+reli_original <- data_2022_un %>%
+  filter(caseid %in% ids_change_reli ) %>%
+  select(caseid, sec11_q157)
+
+reli_cleaned <- data_2022 %>%
+  filter(caseid %in% ids_change_reli) %>%
+  select(caseid, sec11_q157)
+
+```
+
+```{r}
+
+comparison_reli <- merge(reli_original, reli_cleaned, by = "caseid", suffixes = c(".original", ".cleaned"))
+comparison_reli$sec11_q157.original <- as.character(comparison_reli$sec11_q157.original)
+comparison_reli$sec11_q157.cleaned <- as.character(comparison_reli$sec11_q157.cleaned)
+
+labels_vector <- c(`1` = "Catholic", `2` = "CCAP", `3` = "Anglican",
+                   `4` = "Seventh Day Adventist", `5` = "Baptist", 
+                   `6` = "Other Christian", `7` = "Muslim", 
+                   `9` = "Traditional African religion", `888` = "Other")
+
+comparison_reli$sec11_q157.original <- labels_vector[as.character(comparison_reli$sec11_q157.original)]
+comparison_reli$change_detected <- comparison_reli$sec11_q157.original != comparison_reli$sec11_q157.cleaned
+num_true <- sum(comparison_reli$change_detected == TRUE)
+
+comparison_reli
+num_true
+```
+
+
+
