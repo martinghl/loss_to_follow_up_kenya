@@ -907,4 +907,78 @@ bir_2022 <- perform_bivariate_tests(data_2022_cleaned)
 bir_2024 <- perform_bivariate_tests(data_2024_cleaned)
 
 ```
+# First, extract case IDs from 2024 data for those who answered correctly and completed the survey
+followed_case_ids <- data_2024_cleaned %>%
+  filter(response_status == 1) %>%
+  pull(caseid)
 
+# Then, create the `if_follow` variable in the 2022 data based on participation in both surveys
+data_2022_cleaned <- data_2022_cleaned %>%
+  mutate(if_follow = if_else(caseid %in% followed_case_ids, 1, 0))
+
+# Ensure categorical variables are factors
+data_2022_cleaned <- data_2022_cleaned %>%
+  mutate(
+    highest_education = as.factor(highest_education),
+    employment_status = as.factor(employment_status),
+    household_income = as.factor(household_income),
+    residence_area = as.factor(residence_area),
+    gender = as.factor(gender),
+    marital_status = as.factor(marital_status),
+    religion = as.factor(religion)
+  )
+
+# Logistic regression model to predict if a participant is followed up
+logistic_followup_model <- glm(
+  if_follow ~ highest_education + employment_status + household_income +
+    residence_area + gender + marital_status + religion,
+  data = data_2022_cleaned,
+  family = binomial
+)
+
+# Display the summary of the logistic regression model
+summary(logistic_followup_model)
+
+library(forcats)  # For factor lumping
+
+#Since none fo the factors above are significant, so try combining rare levels in employment_status and religion
+data_2022_cleaned <- data_2022_cleaned %>%
+  mutate(
+    employment_status = fct_lump(employment_status, n = 3),  # Combine into top 3 most frequent levels
+    religion = fct_lump(religion, n = 3)  # Combine into top 3 most frequent levels
+  )
+
+# Run logistic regression with a reduced number of predictors
+logistic_followup_model_simplified <- glm(
+  if_follow ~ highest_education + employment_status + household_income + gender,
+  data = data_2022_cleaned,
+  family = binomial
+)
+
+# Check model summary
+summary(logistic_followup_model_simplified)
+
+=# From this model, we can tell employment_other and gender being female are significant to not following up
+
+# Load necessary library for random forest
+library(randomForest)
+
+# Set seed for reproducibility
+set.seed(123)
+
+
+# Random forest model to predict if a participant is followed up
+data_2022_cleaned_no_na <- na.omit(data_2022_cleaned)
+random_forest_followup_model <- randomForest(
+  as.factor(if_follow) ~ highest_education + employment_status + household_income +
+    residence_area + gender + marital_status + religion,
+  data = data_2022_cleaned_no_na,
+  importance = TRUE
+)
+
+# Display the random forest model summary
+print(random_forest_followup_model)
+
+# Variable importance plot
+varImpPlot(random_forest_followup_model)
+```
