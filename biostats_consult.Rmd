@@ -804,7 +804,50 @@ ggplot(tsne_df, aes(x = Dim1, y = Dim2, color = group)) +
 data_2022_cleaned[data_2022_cleaned == "Missing"] <- NA
 data_2024_cleaned[data_2024_cleaned== "Missing"] <- NA
 ```
+```{r}
+#####################################################################
+#####################################################################
+# MICE Operation
+```{r}
+library(mice)
 
+# Replace "Missing" with NA in the 2022 dataset only
+data_2022_cleaned[data_2022_cleaned == "Missing"] <- NA
+
+data_2022_cleaned <- data_2022_cleaned[, !names(data_2022_cleaned) %in% c("science_or_religion", "survey_duration")]
+
+# Convert specified columns to factors in the 2022 dataset
+data_2022_cleaned <- within(data_2022_cleaned, {
+    highest_education = as.factor(highest_education)
+    employment_status = as.factor(employment_status)
+    household_income = as.factor(household_income)
+    residence_area = as.factor(residence_area)
+    gender = as.factor(gender)
+    marital_status = as.factor(marital_status)
+    religion = as.factor(religion)
+    science_contradict = as.factor(science_contradict)
+    religious = as.factor(religious)
+})
+
+method <- make.method(data_2022_cleaned)
+method["highest_education"] <- "polyreg"
+method["employment_status"] <- "polyreg"
+method["household_income"] <- "polyreg"
+method["residence_area"] <- "polyreg"
+method["gender"] <- "logreg"         # binary categorical
+method["marital_status"] <- "polyreg"
+method["religion"] <- "polyreg"
+method["science_contradict"] <- "polyreg"
+method["religious"] <- "polyreg"
+
+# max_it = 100
+imputed_data_2022 <- mice(data_2022_cleaned, m = 5, method = method, maxit = 100, seed = 500)
+completed_data_2022 <- complete(imputed_data_2022, 1)
+
+head(completed_data_2022)
+dfSummary(completed_data_2022) %>% view()
+```
+```
 ```{r}
 # 加载必要的库
 library(dplyr)
