@@ -28,12 +28,15 @@ library(Rtsne)
 library(reshape2)
 library(car)
 library(gtsummary)
+library(lubridate)
 ```
 
 ```{r, warning=FALSE}
 # Load the dataset
-data_2022 <- read_csv("S:\\biostats_consulting_lab\\cleaned_2022_survey_dta.csv")
-data_2024 <- read_csv("S:\\biostats_consulting_lab\\cleaned_2024_survey_dta.csv")
+data_2022 <- read_csv("/Users/debbiez/Downloads/cleaned_2022_survey_dta.csv")
+data_2024 <- read_csv("/Users/debbiez/Downloads/cleaned_2024_survey_dta.csv")
+#data_2022 <- read_csv("S:\\biostats_consulting_lab\\cleaned_2022_survey_dta.csv")
+#data_2024 <- read_csv("S:\\biostats_consulting_lab\\cleaned_2024_survey_dta.csv")
 ```
 
 ```{r}
@@ -65,11 +68,15 @@ data_2022_cleaned <- data_2022 %>%
     ),
     employment_status = if_else(is.na(employment_status), "Missing", employment_status)
   )
+
+data_2022_cleaned$age_in_2022 <- 2022 - year(data_2022_cleaned$dob)
 ```
+
 ```{r}
 data_2022_cleaned <- data_2022_cleaned %>%
   mutate(across(c(religion,science_or_religion, science_contradict, religious), 
                 ~ replace_na(., "Missing")))
+
 ```
 
 ```{r}
@@ -150,6 +157,7 @@ data_2024_cleaned <- data_2024_cleaned %>%
   # 移除gender_2022和religion_2022，保留处理过的gender_2024和religion_2024
   select(-gender_2022, -dob_2022) %>%
   rename(gender = gender_2024, dob = dob_2024)
+data_2024_cleaned$age_in_2024 <- 2024 - year(data_2024_cleaned$dob)
 ```
 
 ```{r}
@@ -165,7 +173,10 @@ data_2022_cleaned <- data_2022_cleaned %>%
 # Display the first few rows of the cleaned datasets
 head(data_2022_cleaned)
 head(data_2024_cleaned)
+```
 
+
+```{r}
 # Check for missing values in both datasets
 missing_values_2022 <- sapply(data_2022_cleaned, function(x) sum(is.na(x)))
 missing_values_2024 <- sapply(data_2024_cleaned, function(x) sum(is.na(x)))
@@ -321,7 +332,7 @@ merged_data <- full_join(data_2022_cleaned, data_2024_cleaned, by = "caseid", su
     response_status, response_by, 
     parent_guardian, science_or_religion,
     lost, religious,
-    education_change, employment_change, income_change, residence_change, religion_change
+    education_change, employment_change, income_change, residence_change, religion_change,age_in_2022
   )
 
 # View the first few rows to verify the new order
@@ -557,14 +568,15 @@ print(dim(clean_data))  # 检查数据的行数和列数
 
 ```{r}
 # 在清理后的数据上拟合全模型
-clean_model <- glm(lost ~ highest_education_2022 + employment_status_2022 + household_income_2022 + residence_area_2022 + gender_2022 + marital_status_2022 + religion_2022, data = clean_data, family = binomial)
+clean_data$age_in_2022 <- as.numeric(clean_data$age_in_2022)
+clean_model <- glm(lost ~ highest_education_2022 + employment_status_2022 + household_income_2022 + residence_area_2022 + gender_2022 + marital_status_2022 + religion_2022+age_in_2022, data = clean_data, family = binomial)
 # 输出模型结果
 summary(clean_model)
 ```
 
 ```{r}
 # 拟合简化模型，仅保留显著变量
-simplified_model <- glm(lost ~ employment_status_2022 + gender_2022 + religion_2022, 
+simplified_model <- glm(lost ~ employment_status_2022 + gender_2022 + religion_2022+age_in_2022, 
                         data = clean_data, family = binomial)
 # 输出简化模型结果
 summary(simplified_model)
@@ -597,11 +609,12 @@ null_model <- glm(lost ~ 1, data = clean_data, family = binomial)  # 空模型
 r2_mcfadden <- 1 - (logLik(clean_model) / logLik(null_model))
 cat("McFadden's R^2:", r2_mcfadden, "\n")
 ```
+
 ```{r}
 # 如果 dependent variable 是多分类变量
 library(nnet)
 multinom_model <- multinom(lost ~ highest_education_2022 + employment_status_2022 + household_income_2022 + 
-                   residence_area_2022 + gender_2022 + marital_status_2022 + religion_2022, data = clean_data)
+                   residence_area_2022 + gender_2022 + marital_status_2022 + religion_2022+age_in_2022, data = clean_data)
 summary(multinom_model)
 ```
 ```{r}
@@ -609,7 +622,7 @@ summary(multinom_model)
 clean_data$lost <- as.integer(clean_data$lost)
 
 poisson_model <- glm(lost ~ highest_education_2022 + employment_status_2022 + household_income_2022 + 
-                   residence_area_2022 + gender_2022 + marital_status_2022 + religion_2022, 
+                   residence_area_2022 + gender_2022 + marital_status_2022 + religion_2022+age_in_2022, 
                      data = clean_data, family = poisson)
 summary(poisson_model)
 
@@ -838,7 +851,7 @@ method["marital_status"] <- "polyreg"
 method["religion"] <- "polyreg"
 method["science_contradict"] <- "polyreg"
 method["religious"] <- "polyreg"
-
+method["age_in_2022"] <- "pmm" 
 # max_it = 100
 imputed_data_2022 <- mice(data_2022_cleaned, m = 5, method = method, maxit = 100, seed = 500)
 completed_data_2022 <- complete(imputed_data_2022, 1)
@@ -961,10 +974,6 @@ followed_case_ids <- data_2024_cleaned %>%
   filter(response_status == "Answered the phone, correct respondent") %>%
   pull(caseid)
 
-# Then, create the `if_follow` variable in the 2022 data based on participation in both surveys
-completed_data_2022 <- completed_data_2022 %>%
-  mutate(if_follow = if_else(caseid %in% followed_case_ids, 1, 0))
-
 # Ensure categorical variables are factors
 completed_data_2022 <- completed_data_2022 %>%
   mutate(
@@ -976,11 +985,11 @@ completed_data_2022 <- completed_data_2022 %>%
     marital_status = as.factor(marital_status),
     religion = as.factor(religion)
   )
-
+completed_data_2022$age_in_2022 <- as.numeric(completed_data_2022$age_in_2022)
 # Logistic regression model to predict if a participant is followed up
 logistic_followup_model <- glm(
   if_follow ~ highest_education + employment_status + household_income +
-    residence_area + gender + marital_status + religion,
+    residence_area + gender + marital_status + religion+ age_in_2022,
   data = completed_data_2022,
   family = binomial
 )
@@ -993,19 +1002,22 @@ summary(logistic_followup_model)
 ```{r}
 library(forcats)  # For factor lumping
 
+data_2022_cleaned <- data_2022_cleaned %>%
+  mutate(if_follow = if_else(caseid %in% followed_case_ids, 1, 0))
 #Since none fo the factors above are significant, so try combining rare levels in employment_status and religion
 data_2022_cleaned <- data_2022_cleaned %>%
   mutate(
     employment_status = fct_lump(employment_status, n = 3),  # Combine into top 3 most frequent levels
     religion = fct_lump(religion, n = 3)  # Combine into top 3 most frequent levels
   )
-
+data_2022_cleaned$age_in_2022 <- as.numeric(data_2022_cleaned$age_in_2022)
 # Run logistic regression with a reduced number of predictors
 logistic_followup_model_simplified <- glm(
-  if_follow ~ highest_education + employment_status + household_income + gender,
+  if_follow ~ highest_education + employment_status + household_income + gender+age_in_2022,
   data = data_2022_cleaned,
   family = binomial
 )
+
 
 # Check model summary
 summary(logistic_followup_model_simplified)
@@ -1021,12 +1033,12 @@ library(randomForest)
 # Set seed for reproducibility
 set.seed(123)
 
-
 # Random forest model to predict if a participant is followed up
 data_2022_cleaned_no_na <- na.omit(data_2022_cleaned)
+data_2022_cleaned_no_na$age_in_2022 <- as.numeric(data_2022_cleaned_no_na$age_in_2022)
 random_forest_followup_model <- randomForest(
   as.factor(if_follow) ~ highest_education + employment_status + household_income +
-    residence_area + gender + marital_status + religion,
+    residence_area + gender + marital_status + religion+age_in_2022,
   data = data_2022_cleaned_no_na,
   importance = TRUE
 )
@@ -1038,4 +1050,3 @@ print(random_forest_followup_model)
 varImpPlot(random_forest_followup_model)
 ```
 
-```
