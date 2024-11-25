@@ -35,6 +35,9 @@ library(gtsummary)
 data_2022 <- read_csv("S:\\biostats_consulting_lab\\cleaned_2022_survey_dta.csv")
 data_2024 <- read_csv("S:\\biostats_consulting_lab\\cleaned_2024_survey_dta.csv")
 ```
+```{r}
+head(data_2022)
+```
 
 ```{r}
 # Rename the specified variables and clean data_2022
@@ -59,17 +62,83 @@ data_2022_cleaned <- data_2022 %>%
   mutate(
     religion = case_when(
       religion %in% c("CCAP", "Traditional African religion") ~ "Other",
-      religion %in% c("Seventh Day Adventist") ~ "Other Christian",
+      religion %in% c("Seventh Day Adventist", "CCAP") ~ "Other Christian",
       religion == "Prefer not to answer" ~ "Prefer not to answer [do not read aloud]",
       TRUE ~ religion
     ),
     employment_status = if_else(is.na(employment_status), "Missing", employment_status)
   )
 ```
-```{r}
+```{r, warning=FALSE}
 data_2022_cleaned <- data_2022_cleaned %>%
   mutate(across(c(religion,science_or_religion, science_contradict, religious), 
                 ~ replace_na(., "Missing")))
+
+survey_date_fixed <- as.Date("2022-01-01")
+
+data_2022_cleaned <- data_2022_cleaned %>%
+  mutate(
+    age = as.numeric(difftime(survey_date_fixed, dob, units = "days")) / 365
+  )
+
+# summary(data_2022_cleaned$age)
+#   Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+#  17.44   32.26   38.03   38.76   44.70   83.64 
+
+age_quantiles <- quantile(data_2022_cleaned$age, probs = seq(0, 1, 0.25), na.rm = TRUE)
+
+data_2022_cleaned <- data_2022_cleaned %>%
+  mutate(
+    age_category = cut(
+      age,
+      breaks = age_quantiles,
+      include.lowest = TRUE,
+      labels = c("Q1", "Q2", "Q3", "Q4")
+    )
+  )
+```
+```{r}
+# Summarize the count for each quantile
+age_summary <- data_2022_cleaned %>%
+  group_by(age_category) %>%
+  summarize(
+    Count = n(),
+    Min_Age = min(age, na.rm = TRUE),
+    Max_Age = max(age, na.rm = TRUE)
+  )
+
+# Display the summary table
+print(age_summary)
+
+# Bar plot for the number of observations in each quantile
+ggplot(age_summary, aes(x = age_category, y = Count, fill = age_category)) +
+  geom_bar(stat = "identity") +
+  labs(
+    title = "Number of Observations by Age Quantile",
+    x = "Age Quantile",
+    y = "Count"
+  ) +
+  theme_minimal()
+
+# Density plot to visualize the distribution of age
+ggplot(data_2022_cleaned, aes(x = age, fill = age_category)) +
+  geom_density(alpha = 0.5) +
+  labs(
+    title = "Density Plot of Age by Quantile",
+    x = "Age",
+    y = "Density"
+  ) +
+  theme_minimal()
+
+# Boxplot to show the distribution of age in each quantile
+ggplot(data_2022_cleaned, aes(x = age_category, y = age, fill = age_category)) +
+  geom_boxplot() +
+  labs(
+    title = "Boxplot of Age by Quantile",
+    x = "Age Quantile",
+    y = "Age"
+  ) +
+  theme_minimal()
 ```
 
 ```{r}
@@ -151,6 +220,7 @@ data_2024_cleaned <- data_2024_cleaned %>%
   select(-gender_2022, -dob_2022) %>%
   rename(gender = gender_2024, dob = dob_2024)
 ```
+
 
 ```{r}
 # Replace "Prefer not to answer [do not read aloud]" with "Prefer not to answer" across all columns
@@ -806,10 +876,7 @@ data_2024_cleaned[data_2024_cleaned== "Missing"] <- NA
 dfSummary(data_2022_cleaned) %>% view()
 ```
 
-
 ```{r}
-library(mice)
-
 # Replace "Missing" with NA in the 2022 dataset only
 data_2022_cleaned[data_2022_cleaned == "Missing"] <- NA
 
@@ -839,8 +906,14 @@ method["religion"] <- "polyreg"
 method["science_contradict"] <- "polyreg"
 method["religious"] <- "polyreg"
 
+```
+
+```{r}
+library(mice)
+
+
 # max_it = 100
-imputed_data_2022 <- mice(data_2022_cleaned, m = 5, method = method, maxit = 100, seed = 500)
+imputed_data_2022 <- mice(data_2022_cleaned, m = 5, method = method, maxit = 10, seed = 500)
 completed_data_2022 <- complete(imputed_data_2022, 1)
 
 head(completed_data_2022)
@@ -851,7 +924,8 @@ dfSummary(completed_data_2022) %>% view()
 
 
 
-```{r}
+```{}
+
 # 加载必要的库
 library(dplyr)
 library(kableExtra)
@@ -947,15 +1021,14 @@ perform_bivariate_tests <- function(data) {
 ```
 
 
-```{r}
+```{}
 # 示例用法：对数据集执行双变量分析
-bir_2022 <- perform_bivariate_tests(data_2022_cleaned)
-bir_2024 <- perform_bivariate_tests(data_2024_cleaned)
+# bir_2022 <- perform_bivariate_tests(data_2022_cleaned)
+# bir_2024 <- perform_bivariate_tests(data_2024_cleaned)
 
 ```
+
 ```{r}
-
-
 # First, extract case IDs from 2024 data for those who answered correctly and completed the survey
 followed_case_ids <- data_2024_cleaned %>%
   filter(response_status == "Answered the phone, correct respondent") %>%
@@ -974,68 +1047,114 @@ completed_data_2022 <- completed_data_2022 %>%
     residence_area = as.factor(residence_area),
     gender = as.factor(gender),
     marital_status = as.factor(marital_status),
-    religion = as.factor(religion)
+    religion = as.factor(religion),
+    age_category = as_factor(age_category)
   )
 
 # Logistic regression model to predict if a participant is followed up
-logistic_followup_model <- glm(
+logistic_followup_model1 <- glm(
   if_follow ~ highest_education + employment_status + household_income +
-    residence_area + gender + marital_status + religion,
+    residence_area + gender + marital_status + religion + age_category,
   data = completed_data_2022,
   family = binomial
 )
 
 # Display the summary of the logistic regression model
-summary(logistic_followup_model)
+summary(logistic_followup_model1)
+```
+
+```{r}
+# Create 'follow_status' variable in data_2024_cleaned
+data_2024_cleaned <- data_2024_cleaned %>%
+  mutate(follow_status = case_when(
+    call_status %in% c("Completed", "Answered, but not completed/Appointment", "Refusal") ~ "followed",
+    call_status %in% c("Answered, but not by the respondent", "No answer", "Not Eligible",
+                       "Respondent Hung Phone", "Deceased", "Line out of Service") ~ "lost",
+    TRUE ~ NA_character_  # Assign NA to any other call_status values
+  ))
+# iDs of participants followed
+followed_case_ids <- data_2024_cleaned %>%
+  filter(follow_status == "followed") %>%
+  pull(caseid)
+
+completed_data_2022 <- completed_data_2022 %>%
+  mutate(if_follow2 = if_else(caseid %in% followed_case_ids, 1, 0))
 
 ```
 
 ```{r}
-library(forcats)  # For factor lumping
-
-#Since none fo the factors above are significant, so try combining rare levels in employment_status and religion
-data_2022_cleaned <- data_2022_cleaned %>%
-  mutate(
-    employment_status = fct_lump(employment_status, n = 3),  # Combine into top 3 most frequent levels
-    religion = fct_lump(religion, n = 3)  # Combine into top 3 most frequent levels
-  )
-
-# Run logistic regression with a reduced number of predictors
-logistic_followup_model_simplified <- glm(
-  if_follow ~ highest_education + employment_status + household_income + gender,
-  data = data_2022_cleaned,
+# Logistic regression model to predict if a participant is followed up
+logistic_followup_model2 <- glm(
+  if_follow2 ~ highest_education + employment_status + household_income +
+    residence_area + gender + marital_status + religion + age_category,
+  data = completed_data_2022,
   family = binomial
 )
-
-# Check model summary
-summary(logistic_followup_model_simplified)
+summary(logistic_followup_model2)
 ```
+```{r}
+library(broom)
 
+# Tidy outputs for both models
+tidy_model1 <- tidy(logistic_followup_model1) %>%
+  filter(term != "(Intercept)") %>%
+  mutate(
+    lower = estimate - 1.96 * std.error,
+    upper = estimate + 1.96 * std.error,
+    significance = ifelse(p.value < 0.05, "Significant", "Not Significant")
+  )
+
+tidy_model2 <- tidy(logistic_followup_model2) %>%
+  filter(term != "(Intercept)") %>%
+  mutate(
+    lower = estimate - 1.96 * std.error,
+    upper = estimate + 1.96 * std.error,
+    significance = ifelse(p.value < 0.05, "Significant", "Not Significant")
+  )
+
+# Plot for Model 1
+ggplot(tidy_model1, aes(x = reorder(term, estimate), y = estimate, ymin = lower, ymax = upper)) +
+  geom_point(aes(color = significance), size = 2) +
+  geom_errorbar(width = 0.2, aes(color = significance)) +
+  coord_flip() +
+  scale_y_continuous(limits = c(-5, 5)) +  # Adjust axis limits as needed
+  labs(
+    title = "Model 1",
+    x = "Predictors",
+    y = "Estimate"
+  ) +
+  theme_minimal() +
+  scale_color_manual(values = c("Significant" = "blue", "Not Significant" = "gray")) +
+  theme(axis.text.y = element_text(size = 8))
+
+# Plot for Model 2
+ggplot(tidy_model2, aes(x = reorder(term, estimate), y = estimate, ymin = lower, ymax = upper)) +
+  geom_point(aes(color = significance), size = 2) +
+  geom_errorbar(width = 0.2, aes(color = significance)) +
+  coord_flip() +
+  scale_y_continuous(limits = c(-5, 5)) +  # Adjust axis limits as needed
+  labs(
+    title = "Model 2",
+    x = "Predictors",
+    y = "Estimate"
+  ) +
+  theme_minimal() +
+  scale_color_manual(values = c("Significant" = "blue", "Not Significant" = "gray")) +
+  theme(axis.text.y = element_text(size = 8))
+
+```
 
 ```{r}
-# From this model, we can tell employment_other and gender being female are significant to not following up
+model1_tidy <- tidy(logistic_followup_model1) %>%
+  select(term, estimate, std.error, p.value) %>%
+  arrange(p.value)
 
-# Load necessary library for random forest
-library(randomForest)
-
-# Set seed for reproducibility
-set.seed(123)
-
-
-# Random forest model to predict if a participant is followed up
-data_2022_cleaned_no_na <- na.omit(data_2022_cleaned)
-random_forest_followup_model <- randomForest(
-  as.factor(if_follow) ~ highest_education + employment_status + household_income +
-    residence_area + gender + marital_status + religion,
-  data = data_2022_cleaned_no_na,
-  importance = TRUE
-)
-
-# Display the random forest model summary
-print(random_forest_followup_model)
-
-# Variable importance plot
-varImpPlot(random_forest_followup_model)
+model2_tidy <- tidy(logistic_followup_model2) %>%
+  select(term, estimate, std.error, p.value) %>%
+  arrange(p.value)
 ```
 
+```{r}
+model1_tidy
 ```
+
