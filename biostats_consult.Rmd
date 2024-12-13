@@ -35,6 +35,9 @@ library(gtsummary)
 data_2022 <- read_csv("S:\\biostats_consulting_lab\\cleaned_2022_survey_dta.csv")
 data_2024 <- read_csv("S:\\biostats_consulting_lab\\cleaned_2024_survey_dta.csv")
 ```
+```{r}
+head(data_2022)
+```
 
 ```{r}
 # Rename the specified variables and clean data_2022
@@ -59,17 +62,83 @@ data_2022_cleaned <- data_2022 %>%
   mutate(
     religion = case_when(
       religion %in% c("CCAP", "Traditional African religion") ~ "Other",
-      religion %in% c("Seventh Day Adventist") ~ "Other Christian",
+      religion %in% c("Seventh Day Adventist", "CCAP") ~ "Other Christian",
       religion == "Prefer not to answer" ~ "Prefer not to answer [do not read aloud]",
       TRUE ~ religion
     ),
     employment_status = if_else(is.na(employment_status), "Missing", employment_status)
   )
 ```
-```{r}
+```{r, warning=FALSE}
 data_2022_cleaned <- data_2022_cleaned %>%
   mutate(across(c(religion,science_or_religion, science_contradict, religious), 
                 ~ replace_na(., "Missing")))
+
+survey_date_fixed <- as.Date("2022-01-01")
+
+data_2022_cleaned <- data_2022_cleaned %>%
+  mutate(
+    age = as.numeric(difftime(survey_date_fixed, dob, units = "days")) / 365
+  )
+
+# summary(data_2022_cleaned$age)
+#   Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+#  17.44   32.26   38.03   38.76   44.70   83.64 
+
+age_quantiles <- quantile(data_2022_cleaned$age, probs = seq(0, 1, 0.25), na.rm = TRUE)
+
+data_2022_cleaned <- data_2022_cleaned %>%
+  mutate(
+    age_category = cut(
+      age,
+      breaks = age_quantiles,
+      include.lowest = TRUE,
+      labels = c("Q1", "Q2", "Q3", "Q4")
+    )
+  )
+```
+```{r}
+# Summarize the count for each quantile
+age_summary <- data_2022_cleaned %>%
+  group_by(age_category) %>%
+  summarize(
+    Count = n(),
+    Min_Age = min(age, na.rm = TRUE),
+    Max_Age = max(age, na.rm = TRUE)
+  )
+
+# Display the summary table
+print(age_summary)
+
+# Bar plot for the number of observations in each quantile
+ggplot(age_summary, aes(x = age_category, y = Count, fill = age_category)) +
+  geom_bar(stat = "identity") +
+  labs(
+    title = "Number of Observations by Age Quantile",
+    x = "Age Quantile",
+    y = "Count"
+  ) +
+  theme_minimal()
+
+# Density plot to visualize the distribution of age
+ggplot(data_2022_cleaned, aes(x = age, fill = age_category)) +
+  geom_density(alpha = 0.5) +
+  labs(
+    title = "Density Plot of Age by Quantile",
+    x = "Age",
+    y = "Density"
+  ) +
+  theme_minimal()
+
+# Boxplot to show the distribution of age in each quantile
+ggplot(data_2022_cleaned, aes(x = age_category, y = age, fill = age_category)) +
+  geom_boxplot() +
+  labs(
+    title = "Boxplot of Age by Quantile",
+    x = "Age Quantile",
+    y = "Age"
+  ) +
+  theme_minimal()
 ```
 
 ```{r}
@@ -151,6 +220,7 @@ data_2024_cleaned <- data_2024_cleaned %>%
   select(-gender_2022, -dob_2022) %>%
   rename(gender = gender_2024, dob = dob_2024)
 ```
+
 
 ```{r}
 # Replace "Prefer not to answer [do not read aloud]" with "Prefer not to answer" across all columns
@@ -803,14 +873,10 @@ ggplot(tsne_df, aes(x = Dim1, y = Dim2, color = group)) +
 ```{r}
 data_2022_cleaned[data_2022_cleaned == "Missing"] <- NA
 data_2024_cleaned[data_2024_cleaned== "Missing"] <- NA
+dfSummary(data_2022_cleaned) %>% view()
 ```
-```{r}
-#####################################################################
-#####################################################################
-# MICE Operation
-```{r}
-library(mice)
 
+```{r}
 # Replace "Missing" with NA in the 2022 dataset only
 data_2022_cleaned[data_2022_cleaned == "Missing"] <- NA
 
@@ -828,6 +894,7 @@ data_2022_cleaned <- within(data_2022_cleaned, {
     science_contradict = as.factor(science_contradict)
     religious = as.factor(religious)
 })
+library(mice)
 
 method <- make.method(data_2022_cleaned)
 method["highest_education"] <- "polyreg"
@@ -840,15 +907,43 @@ method["religion"] <- "polyreg"
 method["science_contradict"] <- "polyreg"
 method["religious"] <- "polyreg"
 
+```
+
+```{r}
+
 # max_it = 100
-imputed_data_2022 <- mice(data_2022_cleaned, m = 5, method = method, maxit = 100, seed = 500)
+imputed_data_2022 <- mice(data_2022_cleaned, m = 5, method = method, maxit = 10, seed = 500)
 completed_data_2022 <- complete(imputed_data_2022, 1)
 
 head(completed_data_2022)
 dfSummary(completed_data_2022) %>% view()
 ```
-```
+
+
 ```{r}
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+
+calculate_missing_percentage <- function(data) {
+  data %>%
+    summarise(across(everything(), ~ mean(is.na(.)) * 100)) %>%
+    pivot_longer(cols = everything(), names_to = "variable", values_to = "missing_percentage")
+}
+
+missing_2022 <- calculate_missing_percentage(completed_data_2022)
+
+ggplot(missing_2022, aes(x = reorder(variable, -missing_percentage), y = missing_percentage)) +
+  geom_bar(stat = "identity", fill = "red") +
+  coord_flip() +
+  labs(title = "Missing in data_2022", x = "Variables", y = "Missing Percentage (%)") +
+  theme_minimal()
+
+```
+
+
+
+```{}
 # 加载必要的库
 library(dplyr)
 library(kableExtra)
@@ -940,27 +1035,28 @@ perform_bivariate_tests <- function(data) {
     kable_styling(full_width = FALSE, position = "center", bootstrap_options = c("striped", "hover", "condensed"))
 }
 
-
 ```
 
+
+```{}
+# 示例用法：对数据集执行双变量分析
+# bir_2022 <- perform_bivariate_tests(data_2022_cleaned)
+# bir_2024 <- perform_bivariate_tests(data_2024_cleaned)
+
+```
 
 ```{r}
-# 示例用法：对数据集执行双变量分析
-bir_2022 <- perform_bivariate_tests(data_2022_cleaned)
-bir_2024 <- perform_bivariate_tests(data_2024_cleaned)
-
-```
 # First, extract case IDs from 2024 data for those who answered correctly and completed the survey
 followed_case_ids <- data_2024_cleaned %>%
-  filter(response_status == 1) %>%
+  filter(response_status == "Answered the phone, correct respondent") %>%
   pull(caseid)
 
 # Then, create the `if_follow` variable in the 2022 data based on participation in both surveys
-data_2022_cleaned <- data_2022_cleaned %>%
+completed_data_2022 <- completed_data_2022 %>%
   mutate(if_follow = if_else(caseid %in% followed_case_ids, 1, 0))
 
 # Ensure categorical variables are factors
-data_2022_cleaned <- data_2022_cleaned %>%
+completed_data_2022 <- completed_data_2022 %>%
   mutate(
     highest_education = as.factor(highest_education),
     employment_status = as.factor(employment_status),
@@ -968,60 +1064,374 @@ data_2022_cleaned <- data_2022_cleaned %>%
     residence_area = as.factor(residence_area),
     gender = as.factor(gender),
     marital_status = as.factor(marital_status),
-    religion = as.factor(religion)
+    religion = as.factor(religion),
+    age_category = as.factor(age_category)
   )
 
 # Logistic regression model to predict if a participant is followed up
-logistic_followup_model <- glm(
+logistic_followup_model1 <- glm(
   if_follow ~ highest_education + employment_status + household_income +
-    residence_area + gender + marital_status + religion,
-  data = data_2022_cleaned,
+    residence_area + gender + marital_status + religion + age_category,
+  data = completed_data_2022,
   family = binomial
 )
 
 # Display the summary of the logistic regression model
-summary(logistic_followup_model)
+summary(logistic_followup_model1)
+```
+```{r}
+model_summary <- summary(logistic_followup_model1)
+coef_table <- model_summary$coefficients
+p_values <- coef_table[, "Pr(>|z|)"]
+adjusted_p_values <- p.adjust(p_values, method = "BH")
+coef_table <- cbind(coef_table, adjusted_p_values)
+coef_table
+```
 
-library(forcats)  # For factor lumping
+```{r}
+# Create 'follow_status' variable in data_2024_cleaned
+data_2024_cleaned <- data_2024_cleaned %>%
+  mutate(follow_status = case_when(
+    call_status %in% c("Completed", "Answered, but not completed/Appointment", "Refusal") ~ "followed",
+    call_status %in% c("Answered, but not by the respondent", "No answer", "Not Eligible",
+                       "Respondent Hung Phone", "Deceased", "Line out of Service") ~ "lost",
+    TRUE ~ NA_character_  # Assign NA to any other call_status values
+  ))
+# iDs of participants followed
+followed_case_ids <- data_2024_cleaned %>%
+  filter(follow_status == "followed") %>%
+  pull(caseid)
 
-#Since none fo the factors above are significant, so try combining rare levels in employment_status and religion
-data_2022_cleaned <- data_2022_cleaned %>%
-  mutate(
-    employment_status = fct_lump(employment_status, n = 3),  # Combine into top 3 most frequent levels
-    religion = fct_lump(religion, n = 3)  # Combine into top 3 most frequent levels
-  )
+completed_data_2022 <- completed_data_2022 %>%
+  mutate(if_follow2 = if_else(caseid %in% followed_case_ids, 1, 0))
 
-# Run logistic regression with a reduced number of predictors
-logistic_followup_model_simplified <- glm(
-  if_follow ~ highest_education + employment_status + household_income + gender,
-  data = data_2022_cleaned,
+```
+
+```{r}
+# Logistic regression model to predict if a participant is followed up
+logistic_followup_model2 <- glm(
+  if_follow2 ~ highest_education + employment_status + household_income +
+    residence_area + gender + marital_status + religion + age_category,
+  data = completed_data_2022,
   family = binomial
 )
+summary(logistic_followup_model2)
+```
+```{r}
+model_summary <- summary(logistic_followup_model2)
+coef_table <- model_summary$coefficients
+p_values <- coef_table[, "Pr(>|z|)"]
+adjusted_p_values <- p.adjust(p_values, method = "BH")
+coef_table <- cbind(coef_table, adjusted_p_values)
+coef_table
+```
 
-# Check model summary
-summary(logistic_followup_model_simplified)
 
-=# From this model, we can tell employment_other and gender being female are significant to not following up
+```{r}
+library(broom)
+library(dplyr)
+library(ggplot2)
 
-# Load necessary library for random forest
-library(randomForest)
-
-# Set seed for reproducibility
-set.seed(123)
-
-
-# Random forest model to predict if a participant is followed up
-data_2022_cleaned_no_na <- na.omit(data_2022_cleaned)
-random_forest_followup_model <- randomForest(
-  as.factor(if_follow) ~ highest_education + employment_status + household_income +
-    residence_area + gender + marital_status + religion,
-  data = data_2022_cleaned_no_na,
-  importance = TRUE
+term_order <- c(
+  # Age
+  "age_categoryQ1",
+  "age_categoryQ2",
+  "age_categoryQ3",
+  "age_categoryQ4",
+  
+  # Gender
+  "genderFemale",
+  "genderMale",
+  
+  # Marital Status
+  "marital_statusSingle",
+  "marital_statusMarried",
+  "marital_statusDivorced/Separated",
+  "marital_statusWidowed",
+  "marital_statusPrefer not to answer",
+  
+  # Religion
+  "religionMuslim",
+  "religionBaptist",
+  "religionCatholic",
+  "religionOther Christian",
+  "religionOther",
+  "religionPrefer not to answer",
+  
+  # Highest Education
+  "highest_educationNo school/Did not complete primary",
+  "highest_educationPrimary",
+  "highest_educationSecondary",
+  
+  # Household Income
+  "household_incomeAllowed me to save just a little",
+  "household_incomeOnly just met my expenses",
+  "household_incomeWas not sufficient, so needed to use savings to meet expenses",
+  "household_incomeWas really not sufficient, so needed to borrow to meet expenses",
+  "household_incomePrefer not to answer",
+  
+  # Employment Status
+  "employment_statusEmployed full-time",
+  "employment_statusEmployed part-time",
+  "employment_statusSelf-employed",
+  "employment_statusNot employed but looking for work",
+  "employment_statusNot employed and not looking for work",
+  "employment_statusPrefer not to answer",
+  
+  # Residence Area
+  "residence_areaVillage (rural)",
+  "residence_areaTrading Center (town)"
 )
 
-# Display the random forest model summary
-print(random_forest_followup_model)
 
-# Variable importance plot
-varImpPlot(random_forest_followup_model)
+# 整理Model 1数据
+tidy_model1 <- tidy(logistic_followup_model1) %>%
+  filter(term != "(Intercept)") %>%
+  mutate(
+    lower = estimate - 1.96 * std.error,
+    upper = estimate + 1.96 * std.error,
+    significance = ifelse(p.value < 0.05, "Significant", "Not Significant"),
+    aOR = exp(estimate),
+    aOR_lower = exp(lower),
+    aOR_upper = exp(upper)
+  )
+
+# 确保term在数据中存在且与term_order匹配, 去除多余水平
+tidy_model1 <- tidy_model1 %>%
+  mutate(term = factor(term, levels = term_order)) %>%
+  droplevels()
+
+ggplot(tidy_model1, aes(x = aOR, y = term)) +
+  geom_vline(xintercept = 1, linetype = "dashed") + # 在OR=1处参考线
+  geom_errorbarh(aes(xmin = aOR_lower, xmax = aOR_upper, color = significance), height = 0.2) +
+  geom_point(aes(color = significance), size = 2) +
+  scale_x_continuous(trans = "log",  # aOR使用对数刻度
+                     breaks = c(0.5, 1, 2, 5), 
+                     limits = c(0.1, 10)) +
+  labs(
+    title = "Model 1",
+    x = "Adjusted Odds Ratio (log scale)",
+    y = "Predictors"
+  ) +
+  theme_minimal() +
+  scale_color_manual(values = c("Significant" = "blue", "Not Significant" = "gray")) +
+  theme(axis.text.y = element_text(size = 8),
+        legend.position = "bottom")
+
+# 对Model 2进行同样处理
+tidy_model2 <- tidy(logistic_followup_model2) %>%
+  filter(term != "(Intercept)") %>%
+  mutate(
+    lower = estimate - 1.96 * std.error,
+    upper = estimate + 1.96 * std.error,
+    significance = ifelse(p.value < 0.05, "Significant", "Not Significant"),
+    aOR = exp(estimate),
+    aOR_lower = exp(lower),
+    aOR_upper = exp(upper)
+  )
+
+tidy_model2 <- tidy_model2 %>%
+  mutate(term = factor(term, levels = term_order)) %>%
+  droplevels()
+
+ggplot(tidy_model2, aes(x = aOR, y = term)) +
+  geom_vline(xintercept = 1, linetype = "dashed") +
+  geom_errorbarh(aes(xmin = aOR_lower, xmax = aOR_upper, color = significance), height = 0.2) +
+  geom_point(aes(color = significance), size = 2) +
+  scale_x_continuous(trans = "log",
+                     breaks = c(0.5, 1, 2, 5), 
+                     limits = c(0.1, 10)) +
+  labs(
+    title = "Model 2",
+    x = "Adjusted Odds Ratio (log scale)",
+    y = "Predictors"
+  ) +
+  theme_minimal() +
+  scale_color_manual(values = c("Significant" = "blue", "Not Significant" = "gray")) +
+  theme(axis.text.y = element_text(size = 8),
+        legend.position = "bottom")
+
 ```
+
+```{r}
+# 如未安装需要先安装
+# install.packages("broom")
+# install.packages("dplyr")
+# install.packages("kableExtra")
+
+library(broom)
+library(dplyr)
+library(kableExtra)
+
+# 定义term的逻辑顺序（根据实际情况添加 (ref) 标记）
+term_order <- c(
+  # Age
+  "age_categoryQ1",
+  "age_categoryQ2",
+  "age_categoryQ3",
+  "age_categoryQ4",
+  
+  # Gender
+  "genderFemale",
+  "genderMale",
+  
+  # Marital Status
+  "marital_statusSingle",
+  "marital_statusMarried",
+  "marital_statusDivorced/Separated",
+  "marital_statusWidowed",
+  "marital_statusPrefer not to answer",
+  
+  # Religion
+  "religionMuslim",
+  "religionBaptist",
+  "religionCatholic",
+  "religionOther Christian",
+  "religionOther",
+  "religionPrefer not to answer",
+  
+  # Highest Education
+  "highest_educationNo school/Did not complete primary",
+  "highest_educationPrimary",
+  "highest_educationSecondary",
+  
+  # Household Income
+  "household_incomeAllowed me to save just a little",
+  "household_incomeOnly just met my expenses",
+  "household_incomeWas not sufficient, so needed to use savings to meet expenses",
+  "household_incomeWas really not sufficient, so needed to borrow to meet expenses",
+  "household_incomePrefer not to answer",
+  
+  # Employment Status
+  "employment_statusEmployed full-time",
+  "employment_statusEmployed part-time",
+  "employment_statusSelf-employed",
+  "employment_statusNot employed but looking for work",
+  "employment_statusNot employed and not looking for work",
+  "employment_statusPrefer not to answer",
+  
+  # Residence Area
+  "residence_areaVillage (rural)",
+  "residence_areaTrading Center (town)"
+)
+
+#### Model 1（Univariate Model）处理 ####
+tidy_model1_raw <- tidy(logistic_followup_model1) %>%
+  filter(term != "(Intercept)")
+
+tidy_model1 <- tidy_model1_raw %>%
+  mutate(
+    # 手动计算 OR 和 95%CI（Wald）
+    OR = exp(estimate),
+    OR_lower = exp(estimate - 1.96 * std.error),
+    OR_upper = exp(estimate + 1.96 * std.error),
+    OR_CI = paste0(round(OR, 2), " [", round(OR_lower, 2), ", ", round(OR_upper, 2), "]"),
+    p = ifelse(p.value < 0.001, "<0.001", as.character(round(p.value, 3)))
+  ) %>%
+  mutate(term = factor(term, levels = term_order)) %>%
+  arrange(term) %>%
+  select(term, OR_CI, p)
+
+#### Model 2（Multivariate Model）处理 ####
+tidy_model2_raw <- tidy(logistic_followup_model2) %>%
+  filter(term != "(Intercept)")
+
+tidy_model2 <- tidy_model2_raw %>%
+  mutate(
+    aOR = exp(estimate),
+    aOR_lower = exp(estimate - 1.96 * std.error),
+    aOR_upper = exp(estimate + 1.96 * std.error),
+    aOR_CI = paste0(round(aOR, 2), " [", round(aOR_lower, 2), ", ", round(aOR_upper, 2), "]"),
+    p2 = ifelse(p.value < 0.001, "<0.001", as.character(round(p.value, 3)))
+  ) %>%
+  mutate(term = factor(term, levels = term_order)) %>%
+  arrange(term) %>%
+  select(term, aOR_CI, p2)
+
+# 合并两个结果
+combined <- full_join(tidy_model1, tidy_model2, by = "term")
+
+# 生成对照表格
+table_html <- combined %>%
+  rename(" " = term,
+         "OR [95% CI]" = OR_CI,
+         "p (If_follow)" = p,
+         "aOR [95% CI]" = aOR_CI,
+         "p (If_follow2)" = p2) %>%
+  kable("html", escape = FALSE, align = "lcccc",
+        caption = "Association between factors and outcome") %>%
+  add_header_above(c(" " = 1, "Model 1" = 2, "Model 2" = 2)) %>%
+  kable_styling(full_width = FALSE, position = "center")
+
+# 打印表格
+table_html
+
+# 如果需要保存结果数据为CSV
+write.csv(combined, "S:\\Downloads\\combined_results.csv", row.names = FALSE)
+
+```
+
+
+
+```{r}
+library(dplyr)
+library(knitr)
+library(kableExtra)
+
+# 假设你的数据集是 completed_data_2022，并且 if_follow 和 if_follow2 都是0/1变量
+df_table <- data.frame(
+  variable = c("if_follow", "if_follow2"),
+  zeros = c(sum(completed_data_2022$if_follow == 0, na.rm = TRUE),
+            sum(completed_data_2022$if_follow2 == 0, na.rm = TRUE)),
+  ones = c(sum(completed_data_2022$if_follow == 1, na.rm = TRUE),
+           sum(completed_data_2022$if_follow2 == 1, na.rm = TRUE))
+)
+
+# 使用kable整齐地打印出表格
+df_table %>%
+  kable(col.names = c("Variable", "Count(0)", "Count(1)"), caption = "Distribution of if_follow and if_follow2") %>%
+  kable_styling(full_width = FALSE, position = "center")
+
+
+```
+```{r}
+# install.packages("FactoMineR")
+# install.packages("factoextra")
+# install.packages("dplyr")
+
+library(FactoMineR)
+library(factoextra)
+library(dplyr)
+completed_data_2022 <- completed_data_2022 %>%
+  mutate(
+    highest_education = factor(highest_education),
+    employment_status = factor(employment_status),
+    household_income = factor(household_income),
+    residence_area = factor(residence_area),
+    gender = factor(gender),
+    marital_status = factor(marital_status),
+    religion = factor(religion),
+    age_category = factor(age_category)
+  )
+
+df_mca <- completed_data_2022 %>%
+  select(highest_education, employment_status, household_income,
+         residence_area, gender, marital_status, religion, age_category)
+
+sapply(df_mca, nlevels)
+
+res.mca <- MCA(df_mca, graph = FALSE)
+print(res.mca)
+res.mca$eig
+
+fviz_mca_biplot(res.mca, repel = TRUE) +
+  labs(title = "MCA Biplot for Nominal Variables")
+
+fviz_mca_var(res.mca, choice = "mca.cor", repel = TRUE) +
+  labs(title = "MCA - Variables Representation")
+
+fviz_mca_biplot(res.mca, repel = TRUE) +
+  labs(title = "MCA - Categories Representation")
+
+```
+
