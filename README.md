@@ -1,9 +1,8 @@
-
-# README: Biostatistics Consulting Project
+# Biostatistics Consulting Project "Loss to Follow-up"
 
 ## Project Overview
 
-This repository contains the workflow, analyses, and outputs for a **biostatistics consulting project** aimed at analyzing longitudinal survey data collected in 2022 and 2024. The project is not a tool or application but a collaborative consulting effort involving **data cleaning**, **imputation**, **statistical modeling**, and **exploratory analysis** to derive meaningful insights about survey follow-up patterns and participant characteristics.
+This repository contains the workflow, analyses, and outputs for a **biostatistics consulting project** aimed at analyzing longitudinal survey data collected in 2022 and 2024. The project is a collaborative consulting effort involving **data cleaning**, **imputation**, **statistical modeling**, and **exploratory analysis** to derive meaningful insights about survey follow-up patterns and participant characteristics.
 
 ### Objectives
 The project seeks to:
@@ -21,6 +20,7 @@ The project seeks to:
 - Converted categorical variables to appropriate formats.
 - Merged datasets based on unique participant identifiers (`caseid`) to track changes over time.
 - Addressed missing values using multiple imputation techniques.
+- Initial data cleaning and codebook-level adjustments were performed using `missing_data_clean.ipynb`.
 
 ### 2. **Exploratory Data Analysis (EDA)**
 - Performed summary statistics for key variables.
@@ -38,46 +38,33 @@ The project seeks to:
 - Plotted density distributions, bar charts, boxplots, and pie charts for demographic and survey responses.
 - Performed dimensionality reduction techniques like **PCA** and **t-SNE** to visualize group separations (e.g., lost vs. followed participants).
 
-### 5. **Codebook Generation**
-- Created descriptive mappings of variables and categorical codings to enhance interpretability.
-- Included metadata for the 2022 and 2024 datasets based on provided codebooks.
+### 5. **Final Outputs**
+- Summarized findings and actionable insights in the final report.
+- Provided a fully reproducible workflow using R Markdown and R script.
 
 ---
 
 ## Repository Structure
 
-### **Scripts**
-- **`missing_data_clean.ipynb`**: Jupyter Notebook for initial data cleaning and generating codebooks.
-- **`biostats_consult_1124.Rmd`**: R Markdown file containing the full statistical analysis, modeling, and visualizations.
+### **Files**
+1. **`analysis_report.pdf`**:
+   - Final report summarizing the project’s methodology, findings, and recommendations.
+   - Includes key visualizations, model results, and demographic insights.
 
-### **Data Files**
-> *(Data files are not included in this repository due to confidentiality. Please ensure access permissions before using the scripts.)*
-- `2022SurveyedPeople.dta`: Original 2022 survey dataset.
-- `2024SurveyedPeople.dta`: Original 2024 survey dataset.
-- Cleaned datasets:
-  - `cleaned_2022_survey_dta.csv`
-  - `cleaned_2024_survey_dta.csv`
+2. **`analysis_script.R`**:
+   - Full R script containing data cleaning, modeling, and visualization workflows.
+   - Designed for reproducibility and efficient analysis.
 
-### **Outputs**
-- Model summaries for **logistic regression**.
-- Visualizations for follow-up patterns and demographic distributions.
-- Codebooks for 2022 and 2024 datasets.
+3. **`biostats_consult_1101.Rmd`**:
+   - R Markdown file for detailed step-by-step analysis.
+   - Includes inline commentary and visualizations for exploratory and statistical analysis.
 
----
+4. **`missing_data_clean.ipynb`**:
+   - Jupyter Notebook for codebook-level data cleaning and initial standardization.
+   - Includes variable recoding, addressing inconsistencies, and generating codebooks for both datasets.
 
-## Usage Instructions
-
-1. **Data Cleaning**:
-   Run `missing_data_clean.ipynb` to clean and harmonize the raw datasets. This step includes:
-   - Standardizing date formats.
-   - Recoding categorical variables.
-   - Generating codebooks for metadata.
-
-2. **Data Analysis**:
-   Execute `biostats_consult_1124.Rmd` in RStudio to perform:
-   - Exploratory Data Analysis (EDA).
-   - Logistic regression modeling.
-   - Visualizations for insights into predictors and group differences.
+### **Archived Files**
+- All earlier drafts, raw datasets, and intermediate outputs are stored in the `documents` folder for reference and documentation purposes.
 
 ---
 
@@ -87,6 +74,7 @@ The project seeks to:
 - **Employment status** showed stronger associations in the broader follow-up criteria (Model 2).
 - Significant differences were observed in educational attainment and household income between lost and followed participants.
 - Data visualizations revealed clustering patterns that highlight group differences, aiding in hypothesis generation for retention strategies.
+
 ---
 
 ## Notes for Consulting
